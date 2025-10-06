@@ -103,15 +103,11 @@ class DocumentService:
         
         # Extract text content
         try:
-            print(f"DEBUG: Extracting text from {full_file_path}, type: {doc_type}")
             extracted_text = await extract_text(str(full_file_path), doc_type)
-            print(f"DEBUG: Extraction successful, length: {len(extracted_text) if extracted_text else 0}")
             status = "completed"
             word_count = len(extracted_text.split()) if extracted_text else 0
         except Exception as e:
             print(f"Text extraction failed: {e}")
-            import traceback
-            traceback.print_exc()
             extracted_text = None
             status = "failed"
             word_count = 0
@@ -121,7 +117,7 @@ class DocumentService:
             filename=file.filename,
             original_filename=file.filename,
             title=file.filename,
-            file_path=relative_file_path,
+            file_path=file_path,
             file_size_bytes=len(content),
             mime_type=mime_type,
             file_hash=file_hash,

@@ -44,8 +44,7 @@ class DocumentService:
                 is_active=True
             )
             self.db.add(user)
-            self.db.commit()
-            self.db.refresh(user)
+            self.db.flush()
         
         return user.id
     
@@ -68,10 +67,6 @@ class DocumentService:
         Returns:
             Created document record
         """
-        # Get or create default user if none provided
-        if user_id is None:
-            user_id = self._get_or_create_default_user()
-        
         # Read file content
         content = await file.read()
         
@@ -87,15 +82,12 @@ class DocumentService:
         if existing_doc:
             return existing_doc
         
-        # Save file to storage (returns relative path)
-        relative_file_path = await self.file_storage.save_file(
+        # Save file to storage
+        file_path = await self.file_storage.save_file(
             content=content,
             filename=file.filename,
             content_type=file.content_type
         )
-        
-        # Get full path for text extraction
-        full_file_path = self.file_storage.get_full_path(relative_file_path)
         
         # Determine document type from mime type
         mime_type = file.content_type or 'application/octet-stream'
@@ -103,15 +95,11 @@ class DocumentService:
         
         # Extract text content
         try:
-            print(f"DEBUG: Extracting text from {full_file_path}, type: {doc_type}")
-            extracted_text = await extract_text(str(full_file_path), doc_type)
-            print(f"DEBUG: Extraction successful, length: {len(extracted_text) if extracted_text else 0}")
+            extracted_text = await extract_text(file_path, doc_type)
             status = "completed"
             word_count = len(extracted_text.split()) if extracted_text else 0
         except Exception as e:
             print(f"Text extraction failed: {e}")
-            import traceback
-            traceback.print_exc()
             extracted_text = None
             status = "failed"
             word_count = 0
@@ -121,7 +109,7 @@ class DocumentService:
             filename=file.filename,
             original_filename=file.filename,
             title=file.filename,
-            file_path=relative_file_path,
+            file_path=file_path,
             file_size_bytes=len(content),
             mime_type=mime_type,
             file_hash=file_hash,
@@ -170,10 +158,6 @@ class DocumentService:
         Returns:
             Tuple of (documents list, total count)
         """
-        # Get or create default user if none provided
-        if user_id is None:
-            user_id = self._get_or_create_default_user()
-        
         query = self.db.query(Document).filter(Document.user_id == user_id)
         
         # Apply filters
