@@ -39,7 +39,7 @@ def create_seed_data():
             id=user_id,
             username="testuser",
             email="test@inmyhead.dev",
-            password_hash=hash_password("testpassword123"),
+            password_hash=pwd_context.hash("testpassword123"),
             full_name="Test User",
             preferences={"theme": "dark", "language": "en"},
             is_verified=True,

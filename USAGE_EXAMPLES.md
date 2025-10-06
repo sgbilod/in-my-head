@@ -1,0 +1,565 @@
+# In My Head - Usage Examples
+
+## 🎯 Complete Usage Examples
+
+This document provides real-world examples of using the "In My Head" knowledge management system.
+
+---
+
+## Example 1: Research Paper Management
+
+### Scenario
+
+You're a researcher managing multiple papers and need to find relevant content quickly.
+
+### Step 1: Upload Papers
+
+```python
+import requests
+import os
+
+papers_dir = './research_papers/'
+base_url = 'http://localhost:8001'
+
+# Upload all PDFs in directory
+for filename in os.listdir(papers_dir):
+    if filename.endswith('.pdf'):
+        filepath = os.path.join(papers_dir, filename)
+
+        with open(filepath, 'rb') as f:
+            response = requests.post(
+                f'{base_url}/documents/upload',
+                files={'file': f},
+                data={'tags': ['research', 'paper', '2024']}
+            )
+
+            if response.status_code == 201:
+                doc = response.json()
+                print(f"✅ Uploaded: {doc['title']}")
+            else:
+                print(f"❌ Failed: {filename}")
+```
+
+### Step 2: Search for Specific Topics
+
+```python
+# Search for machine learning content
+response = requests.post(
+    f'{base_url}/search/semantic',
+    json={
+        'query': 'deep learning optimization techniques',
+        'limit': 10,
+        'min_similarity': 0.6
+    }
+)
+
+results = response.json()
+
+print(f"\nFound {len(results)} relevant papers:\n")
+for i, doc in enumerate(results, 1):
+    print(f"{i}. {doc['title']}")
+    print(f"   Similarity: {doc['similarity']:.2%}")
+    print(f"   Excerpt: {doc['excerpt'][:100]}...")
+    print()
+```
+
+### Step 3: Find Related Papers
+
+```python
+# Find papers similar to a specific one
+reference_paper_id = 'YOUR_PAPER_ID'
+
+response = requests.post(
+    f'{base_url}/search/similarity',
+    json={
+        'document_id': reference_paper_id,
+        'limit': 5,
+        'min_similarity': 0.7
+    }
+)
+
+similar = response.json()
+
+print(f"\nPapers similar to reference:\n")
+for doc in similar:
+    print(f"- {doc['title']} ({doc['similarity']:.2%} similar)")
+```
+
+---
+
+## Example 2: Meeting Notes Organization
+
+### Scenario
+
+You want to organize and search through meeting notes from different months.
+
+### Step 1: Upload Meeting Notes
+
+```python
+import requests
+from datetime import datetime
+
+base_url = 'http://localhost:8001'
+
+meetings = [
+    {'file': 'team_meeting_jan.docx', 'tags': ['meeting', 'team', '2024-01']},
+    {'file': 'client_meeting_jan.docx', 'tags': ['meeting', 'client', '2024-01']},
+    {'file': 'planning_meeting_feb.docx', 'tags': ['meeting', 'planning', '2024-02']},
+]
+
+for meeting in meetings:
+    with open(meeting['file'], 'rb') as f:
+        response = requests.post(
+            f'{base_url}/documents/upload',
+            files={'file': f},
+            data={'tags': meeting['tags']}
+        )
+
+        if response.status_code == 201:
+            print(f"✅ {meeting['file']}")
+```
+
+### Step 2: Search Across All Meetings
+
+```python
+# Search for action items
+response = requests.post(
+    f'{base_url}/search/semantic',
+    json={
+        'query': 'action items and deadlines',
+        'limit': 20
+    }
+)
+
+results = response.json()
+
+print("\n📋 Action Items Found:\n")
+for doc in results:
+    print(f"📄 {doc['title']}")
+    print(f"   {doc['excerpt']}")
+    print()
+```
+
+### Step 3: Find Similar Discussions
+
+```python
+# Find meetings with similar topics
+latest_meeting_id = 'YOUR_MEETING_ID'
+
+response = requests.post(
+    f'{base_url}/search/similarity',
+    json={
+        'document_id': latest_meeting_id,
+        'limit': 3
+    }
+)
+
+similar_meetings = response.json()
+
+print("\n🔄 Related Meetings:\n")
+for meeting in similar_meetings:
+    print(f"- {meeting['title']}")
+    print(f"  Similarity: {meeting['similarity']:.2%}")
+```
+
+---
+
+## Example 3: Project Documentation Hub
+
+### Scenario
+
+Centralize all project documentation for easy searching.
+
+### Step 1: Upload All Documentation
+
+```python
+import requests
+import os
+
+base_url = 'http://localhost:8001'
+docs_structure = {
+    'specifications': ['spec_v1.docx', 'requirements.pdf'],
+    'architecture': ['architecture.pptx', 'design_patterns.pdf'],
+    'reports': ['status_report.xlsx', 'metrics.xlsx']
+}
+
+for category, files in docs_structure.items():
+    for filename in files:
+        with open(filename, 'rb') as f:
+            response = requests.post(
+                f'{base_url}/documents/upload',
+                files={'file': f},
+                data={'tags': ['project', category]}
+            )
+
+            if response.status_code == 201:
+                print(f"✅ Uploaded {filename} ({category})")
+```
+
+### Step 2: Quick Reference Search
+
+```python
+# Common queries
+queries = [
+    'database schema design',
+    'API authentication flow',
+    'deployment process',
+    'performance benchmarks'
+]
+
+for query in queries:
+    response = requests.post(
+        f'{base_url}/search/semantic',
+        json={
+            'query': query,
+            'limit': 3,
+            'min_similarity': 0.5
+        }
+    )
+
+    results = response.json()
+
+    print(f"\n🔍 {query}:")
+    for doc in results:
+        print(f"  - {doc['title']} ({doc['similarity']:.2%})")
+```
+
+### Step 3: Get Full Document Content
+
+```python
+# Retrieve full content of a document
+doc_id = 'YOUR_DOCUMENT_ID'
+
+response = requests.get(f'{base_url}/documents/{doc_id}/content')
+content = response.json()
+
+print(f"\n📄 {content['title']}\n")
+print(content['content'])
+```
+
+---
+
+## Example 4: Knowledge Base Q&A
+
+### Scenario
+
+Use semantic search to answer questions from your knowledge base.
+
+```python
+import requests
+
+base_url = 'http://localhost:8001'
+
+def ask_question(question, min_confidence=0.6):
+    """
+    Ask a question and get relevant document excerpts.
+    """
+    response = requests.post(
+        f'{base_url}/search/semantic',
+        json={
+            'query': question,
+            'limit': 5,
+            'min_similarity': min_confidence
+        }
+    )
+
+    results = response.json()
+
+    print(f"\n❓ Question: {question}\n")
+
+    if not results:
+        print("No relevant documents found.")
+        return
+
+    print(f"Found {len(results)} relevant sources:\n")
+
+    for i, doc in enumerate(results, 1):
+        print(f"{i}. Source: {doc['title']}")
+        print(f"   Confidence: {doc['similarity']:.2%}")
+        print(f"   Excerpt: {doc['excerpt']}")
+        print()
+
+# Example questions
+questions = [
+    "What is the project timeline?",
+    "Who are the stakeholders?",
+    "What are the technical requirements?",
+    "What is the budget allocation?"
+]
+
+for question in questions:
+    ask_question(question)
+```
+
+---
+
+## Example 5: Batch Document Processing
+
+### Scenario
+
+Process a large batch of documents and generate embeddings.
+
+```python
+import requests
+import os
+import time
+
+base_url = 'http://localhost:8001'
+
+def batch_upload(directory, batch_size=10):
+    """
+    Upload documents in batches with progress tracking.
+    """
+    files = [f for f in os.listdir(directory)
+             if f.endswith(('.pdf', '.docx', '.pptx', '.xlsx', '.txt'))]
+
+    total = len(files)
+    uploaded = 0
+    failed = 0
+
+    print(f"📦 Processing {total} files...\n")
+
+    for i in range(0, total, batch_size):
+        batch = files[i:i + batch_size]
+
+        for filename in batch:
+            filepath = os.path.join(directory, filename)
+
+            try:
+                with open(filepath, 'rb') as f:
+                    response = requests.post(
+                        f'{base_url}/documents/upload',
+                        files={'file': f}
+                    )
+
+                    if response.status_code == 201:
+                        uploaded += 1
+                        print(f"✅ {uploaded}/{total}: {filename}")
+                    else:
+                        failed += 1
+                        print(f"❌ Failed: {filename}")
+
+            except Exception as e:
+                failed += 1
+                print(f"❌ Error with {filename}: {e}")
+
+        # Small delay between batches
+        if i + batch_size < total:
+            print(f"\n⏸️  Batch complete. Waiting...\n")
+            time.sleep(2)
+
+    print(f"\n📊 Results:")
+    print(f"   Uploaded: {uploaded}")
+    print(f"   Failed: {failed}")
+    print(f"   Success Rate: {uploaded/total*100:.1f}%")
+
+# Run batch upload
+batch_upload('./documents')
+
+# Generate embeddings for all
+print("\n🧠 Generating embeddings...")
+response = requests.post(f'{base_url}/search/generate-embeddings')
+result = response.json()
+print(f"✅ {result['message']}")
+```
+
+---
+
+## Example 6: Document Analytics
+
+### Scenario
+
+Analyze your document collection for insights.
+
+```python
+import requests
+from collections import Counter
+
+base_url = 'http://localhost:8001'
+
+def analyze_collection():
+    """
+    Get analytics about your document collection.
+    """
+    # Get all documents
+    response = requests.get(f'{base_url}/documents/?limit=1000')
+    data = response.json()
+
+    documents = data['items']
+    total = data['total']
+
+    # Calculate statistics
+    file_types = Counter(doc['file_type'] for doc in documents)
+    total_size = sum(doc['file_size_bytes'] for doc in documents)
+    total_words = sum(doc.get('word_count', 0) for doc in documents)
+    total_pages = sum(doc.get('page_count', 0) or 0 for doc in documents)
+
+    # Print report
+    print("📊 Document Collection Analytics\n")
+    print(f"Total Documents: {total}")
+    print(f"Total Size: {total_size / (1024*1024):.2f} MB")
+    print(f"Total Words: {total_words:,}")
+    print(f"Total Pages: {total_pages:,}")
+    print(f"\nFile Types:")
+    for file_type, count in file_types.most_common():
+        print(f"  {file_type}: {count} ({count/total*100:.1f}%)")
+
+    # Most similar document pairs
+    print("\n🔗 Finding related documents...")
+
+    # Sample a few documents to find similarities
+    sample_docs = documents[:5]
+
+    for doc in sample_docs:
+        response = requests.post(
+            f'{base_url}/search/similarity',
+            json={
+                'document_id': doc['id'],
+                'limit': 3,
+                'min_similarity': 0.7
+            }
+        )
+
+        similar = response.json()
+
+        if similar:
+            print(f"\n📄 {doc['title']}:")
+            for sim in similar:
+                print(f"   → {sim['title']} ({sim['similarity']:.2%})")
+
+# Run analytics
+analyze_collection()
+```
+
+---
+
+## Example 7: Export and Backup
+
+### Scenario
+
+Export document metadata for backup or analysis.
+
+```python
+import requests
+import json
+import csv
+from datetime import datetime
+
+base_url = 'http://localhost:8001'
+
+def export_to_json(output_file='documents_backup.json'):
+    """
+    Export all document metadata to JSON.
+    """
+    response = requests.get(f'{base_url}/documents/?limit=1000')
+    data = response.json()
+
+    backup = {
+        'export_date': datetime.now().isoformat(),
+        'total_documents': data['total'],
+        'documents': data['items']
+    }
+
+    with open(output_file, 'w') as f:
+        json.dump(backup, f, indent=2)
+
+    print(f"✅ Exported {data['total']} documents to {output_file}")
+
+def export_to_csv(output_file='documents_list.csv'):
+    """
+    Export document list to CSV.
+    """
+    response = requests.get(f'{base_url}/documents/?limit=1000')
+    data = response.json()
+
+    documents = data['items']
+
+    with open(output_file, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            'id', 'title', 'file_type', 'file_size_bytes',
+            'word_count', 'page_count', 'created_at'
+        ])
+
+        writer.writeheader()
+
+        for doc in documents:
+            writer.writerow({
+                'id': doc['id'],
+                'title': doc['title'],
+                'file_type': doc['file_type'],
+                'file_size_bytes': doc['file_size_bytes'],
+                'word_count': doc.get('word_count', 0),
+                'page_count': doc.get('page_count', 0),
+                'created_at': doc['created_at']
+            })
+
+    print(f"✅ Exported to {output_file}")
+
+# Export in both formats
+export_to_json()
+export_to_csv()
+```
+
+---
+
+## 🎯 Best Practices
+
+### 1. Meaningful Tags
+
+```python
+# Good tags
+tags = ['project-alpha', 'q4-2024', 'client-facing', 'urgent']
+
+# Not helpful
+tags = ['doc', 'file', 'stuff']
+```
+
+### 2. Search Query Optimization
+
+```python
+# Specific queries work better
+query = "REST API authentication using JWT tokens"
+
+# vs vague
+query = "authentication"
+```
+
+### 3. Similarity Thresholds
+
+```python
+# High precision (fewer, more relevant results)
+min_similarity = 0.8
+
+# High recall (more results, less precise)
+min_similarity = 0.4
+
+# Balanced
+min_similarity = 0.6
+```
+
+### 4. Error Handling
+
+```python
+import requests
+
+try:
+    response = requests.post(
+        'http://localhost:8001/documents/upload',
+        files={'file': open('doc.pdf', 'rb')},
+        timeout=30
+    )
+    response.raise_for_status()
+
+    doc = response.json()
+    print(f"✅ Uploaded: {doc['id']}")
+
+except requests.exceptions.Timeout:
+    print("❌ Upload timed out")
+except requests.exceptions.RequestException as e:
+    print(f"❌ Upload failed: {e}")
+```
+
+---
+
+**Last Updated:** October 4, 2025  
+**Version:** 1.0.0

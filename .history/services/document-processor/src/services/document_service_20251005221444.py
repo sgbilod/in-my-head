@@ -134,19 +134,6 @@ class DocumentService:
             print(f"Metadata extraction failed: {e}")
             doc_metadata = {}
         
-        # Generate embedding
-        embedding_json = None
-        if extracted_text and status == "completed":
-            try:
-                # Generate embedding (limit to 5000 chars for performance)
-                embedding = self.ai_service.generate_embedding(
-                    extracted_text[:5000]
-                )
-                embedding_json = json.dumps(embedding)
-                print(f"DEBUG: Generated embedding of dimension {len(embedding)}")
-            except Exception as e:
-                print(f"Embedding generation failed: {e}")
-        
         # Create document record
         document = Document(
             filename=file.filename,
@@ -159,7 +146,6 @@ class DocumentService:
             extracted_text=extracted_text,
             word_count=word_count,
             page_count=page_count,
-            embedding=embedding_json,
             status=status,
             collection_id=collection_id,
             user_id=user_id,

@@ -15,14 +15,8 @@ from pathlib import Path
 
 from src.models.database import Document, Tag, Collection, User
 from src.utils.file_storage import FileStorage
-from src.utils.text_extractor import (
-    extract_text,
-    get_page_count,
-    extract_metadata
-)
-from src.services.ai_service import get_ai_service
+from src.utils.text_extractor import extract_text, get_page_count, extract_metadata
 import uuid
-import json
 
 
 class DocumentService:
@@ -31,7 +25,6 @@ class DocumentService:
     def __init__(self, db: Session):
         self.db = db
         self.file_storage = FileStorage()
-        self.ai_service = get_ai_service()
     
     def _get_or_create_default_user(self) -> UUID:
         """Get or create a default user for testing/development"""
@@ -134,19 +127,6 @@ class DocumentService:
             print(f"Metadata extraction failed: {e}")
             doc_metadata = {}
         
-        # Generate embedding
-        embedding_json = None
-        if extracted_text and status == "completed":
-            try:
-                # Generate embedding (limit to 5000 chars for performance)
-                embedding = self.ai_service.generate_embedding(
-                    extracted_text[:5000]
-                )
-                embedding_json = json.dumps(embedding)
-                print(f"DEBUG: Generated embedding of dimension {len(embedding)}")
-            except Exception as e:
-                print(f"Embedding generation failed: {e}")
-        
         # Create document record
         document = Document(
             filename=file.filename,
@@ -159,7 +139,6 @@ class DocumentService:
             extracted_text=extracted_text,
             word_count=word_count,
             page_count=page_count,
-            embedding=embedding_json,
             status=status,
             collection_id=collection_id,
             user_id=user_id,
@@ -299,8 +278,6 @@ class DocumentService:
         mime_to_type = {
             'application/pdf': 'pdf',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-            'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
             'text/plain': 'txt',
             'text/markdown': 'md',
         }
