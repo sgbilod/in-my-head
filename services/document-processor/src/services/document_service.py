@@ -1,0 +1,227 @@
+"""
+Document Service
+Business logic for document processing and management
+"""
+
+from fastapi import UploadFile
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from typing import List, Optional, Tuple
+import os
+import hashlib
+from datetime import datetime
+from pathlib import Path
+
+from src.models.database import Document, Tag, DocumentTag, Collection
+from src.utils.file_storage import FileStorage
+from src.utils.text_extractor import extract_text
+
+
+class DocumentService:
+    """Service for managing document operations"""
+    
+    def __init__(self, db: Session):
+        self.db = db
+        self.file_storage = FileStorage()
+    
+    async def process_upload(
+        self,
+        file: UploadFile,
+        collection_id: Optional[int] = None,
+        tags: Optional[List[str]] = None,
+        user_id: int = 1  # Default user for now, will come from auth later
+    ) -> Document:
+        """
+        Process an uploaded document
+        
+        Args:
+            file: Uploaded file
+            collection_id: Optional collection to add document to
+            tags: Optional list of tag names
+            user_id: User uploading the document
+        
+        Returns:
+            Created document record
+        """
+        # Read file content
+        content = await file.read()
+        
+        # Calculate file hash for deduplication
+        file_hash = hashlib.sha256(content).hexdigest()
+        
+        # Check if document already exists
+        existing_doc = self.db.query(Document).filter(
+            Document.content_hash == file_hash,
+            Document.user_id == user_id
+        ).first()
+        
+        if existing_doc:
+            return existing_doc
+        
+        # Save file to storage
+        file_path = await self.file_storage.save_file(
+            content=content,
+            filename=file.filename,
+            content_type=file.content_type
+        )
+        
+        # Determine document type
+        doc_type = self._get_document_type(file.content_type, file.filename)
+        
+        # Extract text content
+        try:
+            extracted_text = await extract_text(file_path, doc_type)
+            processing_status = "completed"
+            word_count = len(extracted_text.split()) if extracted_text else 0
+        except Exception as e:
+            print(f"Text extraction failed: {e}")
+            extracted_text = None
+            processing_status = "failed"
+            word_count = None
+        
+        # Create document record
+        document = Document(
+            title=file.filename,
+            document_type=doc_type,
+            file_path=file_path,
+            file_size=len(content),
+            mime_type=file.content_type,
+            content_hash=file_hash,
+            content=extracted_text,
+            word_count=word_count,
+            processing_status=processing_status,
+            collection_id=collection_id,
+            user_id=user_id,
+            processed_at=datetime.utcnow() if processing_status == "completed" else None
+        )
+        
+        self.db.add(document)
+        self.db.flush()  # Get document ID without committing
+        
+        # Add tags
+        if tags:
+            for tag_name in tags:
+                tag = self._get_or_create_tag(tag_name, user_id)
+                doc_tag = DocumentTag(
+                    document_id=document.id,
+                    tag_id=tag.id
+                )
+                self.db.add(doc_tag)
+        
+        self.db.commit()
+        self.db.refresh(document)
+        
+        return document
+    
+    def list_documents(
+        self,
+        skip: int = 0,
+        limit: int = 50,
+        collection_id: Optional[int] = None,
+        tag: Optional[str] = None,
+        search: Optional[str] = None,
+        user_id: int = 1
+    ) -> Tuple[List[Document], int]:
+        """
+        List documents with optional filtering
+        
+        Args:
+            skip: Pagination offset
+            limit: Maximum results
+            collection_id: Filter by collection
+            tag: Filter by tag name
+            search: Search in titles
+            user_id: User ID
+        
+        Returns:
+            Tuple of (documents list, total count)
+        """
+        query = self.db.query(Document).filter(Document.user_id == user_id)
+        
+        # Apply filters
+        if collection_id:
+            query = query.filter(Document.collection_id == collection_id)
+        
+        if tag:
+            query = query.join(DocumentTag).join(Tag).filter(Tag.name == tag)
+        
+        if search:
+            query = query.filter(Document.title.ilike(f"%{search}%"))
+        
+        # Get total count
+        total = query.count()
+        
+        # Apply pagination
+        documents = query.order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
+        
+        return documents, total
+    
+    def get_document(self, document_id: int, user_id: int = 1) -> Optional[Document]:
+        """Get a document by ID"""
+        return self.db.query(Document).filter(
+            Document.id == document_id,
+            Document.user_id == user_id
+        ).first()
+    
+    def delete_document(self, document_id: int, user_id: int = 1) -> bool:
+        """
+        Delete a document
+        
+        Args:
+            document_id: Document ID
+            user_id: User ID
+        
+        Returns:
+            True if deleted, False if not found
+        """
+        document = self.get_document(document_id, user_id)
+        if not document:
+            return False
+        
+        # Delete file from storage
+        try:
+            self.file_storage.delete_file(document.file_path)
+        except Exception as e:
+            print(f"Failed to delete file: {e}")
+        
+        # Delete document record (cascades to tags)
+        self.db.delete(document)
+        self.db.commit()
+        
+        return True
+    
+    def get_document_content(self, document_id: int, user_id: int = 1) -> Optional[str]:
+        """Get the extracted content of a document"""
+        document = self.get_document(document_id, user_id)
+        return document.content if document else None
+    
+    def _get_or_create_tag(self, tag_name: str, user_id: int) -> Tag:
+        """Get existing tag or create new one"""
+        tag = self.db.query(Tag).filter(
+            Tag.name == tag_name,
+            Tag.user_id == user_id
+        ).first()
+        
+        if not tag:
+            tag = Tag(name=tag_name, user_id=user_id)
+            self.db.add(tag)
+            self.db.flush()
+        
+        return tag
+    
+    def _get_document_type(self, mime_type: str, filename: str) -> str:
+        """Determine document type from mime type and filename"""
+        mime_to_type = {
+            'application/pdf': 'pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+            'text/plain': 'txt',
+            'text/markdown': 'md',
+        }
+        
+        doc_type = mime_to_type.get(mime_type)
+        if doc_type:
+            return doc_type
+        
+        # Fallback to file extension
+        ext = Path(filename).suffix.lower().lstrip('.')
+        return ext if ext else 'other'
