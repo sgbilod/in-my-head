@@ -1,0 +1,219 @@
+# AI Engine Service
+
+AI-powered backend service for "In My Head" platform, providing:
+
+- **Vector Database Operations**: Qdrant integration for semantic search
+- **Document Chunking**: Intelligent text chunking with multiple strategies
+- **RAG (Retrieval-Augmented Generation)**: Context-aware AI responses
+- **Conversation Management**: Multi-turn chat with citations
+- **Semantic Search**: Advanced similarity search with filtering
+
+## 🚀 Quick Start
+
+### Local Development
+
+1. **Install dependencies:**
+
+   ```bash
+   python -m venv venv
+   venv\Scripts\activate  # Windows
+   pip install -r requirements.txt
+   ```
+
+2. **Set up environment:**
+
+   ```bash
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
+
+3. **Start Qdrant (if not running):**
+
+   ```bash
+   docker run -p 6333:6333 -p 6334:6334 \
+       -v qdrant_storage:/qdrant/storage \
+       qdrant/qdrant:latest
+   ```
+
+4. **Run the service:**
+
+   ```bash
+   # PowerShell
+   .\start-ai-engine.ps1
+
+   # Or manually
+   uvicorn src.main:app --reload --host 0.0.0.0 --port 8002
+   ```
+
+5. **Access the API:**
+   - API: http://localhost:8002
+   - Docs: http://localhost:8002/docs
+   - Health: http://localhost:8002/health
+
+### Docker Development
+
+```bash
+# From project root
+docker-compose -f infrastructure/docker/docker-compose.dev.yml up ai-engine
+```
+
+## 📁 Project Structure
+
+```
+ai-engine/
+├── src/
+│   ├── main.py                 # FastAPI application
+│   ├── config.py               # Configuration management
+│   ├── routes/                 # API endpoints
+│   ├── services/               # Business logic
+│   │   ├── qdrant_service.py   # Vector database operations
+│   │   ├── chunker_service.py  # Document chunking
+│   │   ├── retrieval_service.py # RAG retrieval
+│   │   └── generation_service.py # AI generation
+│   └── models/
+│       └── schemas.py          # Pydantic models
+├── tests/                      # Unit and integration tests
+├── requirements.txt            # Python dependencies
+├── Dockerfile                  # Production build
+├── Dockerfile.dev              # Development build
+└── README.md                   # This file
+```
+
+## 🔧 Configuration
+
+Environment variables (`.env`):
+
+```env
+# Database
+DATABASE_URL=postgresql://user:pass@localhost:5434/inmyhead_dev
+
+# Qdrant
+QDRANT_URL=http://localhost:6333
+QDRANT_API_KEY=
+
+# AI Models
+EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+EMBEDDING_DIMENSION=384
+
+# RAG Configuration
+RAG_TOP_K=5
+RAG_SIMILARITY_THRESHOLD=0.7
+
+# LLM Providers (optional)
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+```
+
+## 📚 API Endpoints
+
+### Health & Status
+
+- `GET /health` - Service health check
+- `GET /qdrant/status` - Qdrant connection status
+
+### Vector Search (Coming Soon)
+
+- `POST /search/vector` - Semantic similarity search
+- `POST /search/hybrid` - Hybrid vector + keyword search
+
+### Conversations (Coming Soon)
+
+- `POST /conversations` - Create new conversation
+- `GET /conversations/{id}` - Get conversation
+- `POST /conversations/{id}/messages` - Send message
+
+### Document Operations (Coming Soon)
+
+- `POST /documents/chunk` - Chunk a document
+- `POST /documents/embed` - Generate embeddings
+
+## 🧪 Testing
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=src --cov-report=html
+
+# Run specific test file
+pytest tests/test_qdrant_service.py
+```
+
+## 📊 Qdrant Collections
+
+The service manages three vector collections:
+
+1. **document_embeddings** - Full document vectors (384-dim)
+2. **chunk_embeddings** - Document chunk vectors (384-dim)
+3. **query_embeddings** - Search query history (384-dim)
+
+## 🔍 Migration
+
+To migrate existing embeddings from PostgreSQL to Qdrant:
+
+```bash
+python scripts/migrate_embeddings_to_qdrant.py --batch-size 100
+```
+
+## 🛠️ Development
+
+### Code Style
+
+- **Formatter**: Black (line length: 79)
+- **Linter**: Flake8
+- **Type Checker**: MyPy
+
+```bash
+# Format code
+black src/
+
+# Lint code
+flake8 src/
+
+# Type check
+mypy src/
+```
+
+### Adding New Endpoints
+
+1. Create route file in `src/routes/`
+2. Implement business logic in `src/services/`
+3. Define schemas in `src/models/schemas.py`
+4. Add tests in `tests/`
+5. Include router in `src/main.py`
+
+## 📝 Architecture
+
+### Qdrant Service
+
+High-level wrapper for Qdrant operations:
+
+- Collection management (create, delete, info)
+- Vector operations (upsert, search, delete)
+- Filtering and pagination
+- Connection pooling
+
+### RAG Pipeline
+
+1. **Query** → User sends question
+2. **Retrieval** → Search relevant document chunks
+3. **Re-ranking** → Score and sort by relevance
+4. **Context Assembly** → Build context window
+5. **Generation** → LLM generates response
+6. **Citation** → Link response to sources
+
+## 🚀 Phase 2 Goals
+
+- [x] Qdrant service implementation
+- [x] Collection management
+- [x] Vector search operations
+- [ ] Document chunking service
+- [ ] RAG retrieval implementation
+- [ ] Conversation API
+- [ ] Citation tracking
+- [ ] Query understanding
+
+## 📄 License
+
+Part of "In My Head" platform - Proprietary

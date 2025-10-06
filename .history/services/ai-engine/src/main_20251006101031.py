@@ -31,9 +31,6 @@ app.add_middleware(
 metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
 
-# Include routers
-app.include_router(chunking.router)
-
 
 @app.get("/")
 async def root():
