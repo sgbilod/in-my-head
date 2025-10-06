@@ -7,7 +7,6 @@ from fastapi import UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional, Tuple
-from uuid import UUID
 import os
 import hashlib
 from datetime import datetime
@@ -28,9 +27,9 @@ class DocumentService:
     async def process_upload(
         self,
         file: UploadFile,
-        collection_id: Optional[UUID] = None,
+        collection_id: Optional[int] = None,
         tags: Optional[List[str]] = None,
-        user_id: Optional[UUID] = None  # Will come from auth later
+        user_id: int = 1  # Default user for now, will come from auth later
     ) -> Document:
         """
         Process an uploaded document
@@ -68,11 +67,10 @@ class DocumentService:
         
         # Determine document type from mime type
         mime_type = file.content_type or 'application/octet-stream'
-        doc_type = self._get_document_type(mime_type, file.filename)
         
         # Extract text content
         try:
-            extracted_text = await extract_text(file_path, doc_type)
+            extracted_text = await extract_text(file_path, mime_type)
             status = "completed"
             word_count = len(extracted_text.split()) if extracted_text else 0
         except Exception as e:
@@ -116,10 +114,10 @@ class DocumentService:
         self,
         skip: int = 0,
         limit: int = 50,
-        collection_id: Optional[UUID] = None,
+        collection_id: Optional[int] = None,
         tag: Optional[str] = None,
         search: Optional[str] = None,
-        user_id: Optional[UUID] = None
+        user_id: int = 1
     ) -> Tuple[List[Document], int]:
         """
         List documents with optional filtering
@@ -142,8 +140,7 @@ class DocumentService:
             query = query.filter(Document.collection_id == collection_id)
         
         if tag:
-            # Use the tags relationship
-            query = query.join(Document.tags).filter(Tag.name == tag)
+            query = query.join(DocumentTag).join(Tag).filter(Tag.name == tag)
         
         if search:
             query = query.filter(Document.title.ilike(f"%{search}%"))
@@ -152,27 +149,18 @@ class DocumentService:
         total = query.count()
         
         # Apply pagination
-        documents = (
-            query.order_by(Document.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
+        documents = query.order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
         
         return documents, total
     
-    def get_document(
-        self, document_id: UUID, user_id: Optional[UUID] = None
-    ) -> Optional[Document]:
+    def get_document(self, document_id: int, user_id: int = 1) -> Optional[Document]:
         """Get a document by ID"""
-        query = self.db.query(Document).filter(Document.id == document_id)
-        if user_id:
-            query = query.filter(Document.user_id == user_id)
-        return query.first()
+        return self.db.query(Document).filter(
+            Document.id == document_id,
+            Document.user_id == user_id
+        ).first()
     
-    def delete_document(
-        self, document_id: UUID, user_id: Optional[UUID] = None
-    ) -> bool:
+    def delete_document(self, document_id: int, user_id: int = 1) -> bool:
         """
         Delete a document
         
@@ -199,16 +187,12 @@ class DocumentService:
         
         return True
     
-    def get_document_content(
-        self, document_id: UUID, user_id: Optional[UUID] = None
-    ) -> Optional[str]:
+    def get_document_content(self, document_id: int, user_id: int = 1) -> Optional[str]:
         """Get the extracted content of a document"""
         document = self.get_document(document_id, user_id)
-        return document.extracted_text if document else None
+        return document.content if document else None
     
-    def _get_or_create_tag(
-        self, tag_name: str, user_id: Optional[UUID]
-    ) -> Tag:
+    def _get_or_create_tag(self, tag_name: str, user_id: int) -> Tag:
         """Get existing tag or create new one"""
         tag = self.db.query(Tag).filter(
             Tag.name == tag_name,
