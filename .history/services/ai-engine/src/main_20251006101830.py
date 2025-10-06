@@ -33,7 +33,6 @@ app.mount("/metrics", metrics_app)
 
 # Include routers
 app.include_router(chunking.router)
-app.include_router(rag.router)
 
 
 @app.get("/")
