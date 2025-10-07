@@ -327,8 +327,7 @@ async def send_message(
             model=request.model,
             temperature=request.temperature,
             use_rag=request.use_rag,
-            top_k=request.top_k,
-            collection_id=request.collection_id
+            top_k=request.top_k
         )
         
         # Format responses

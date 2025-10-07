@@ -22,6 +22,10 @@ COPY requirements.txt .
 RUN pip install --user --no-cache-dir --upgrade pip && \
   pip install --user --no-cache-dir -r requirements.txt
 
+# Download spaCy model (use user install path)
+ENV PATH=/root/.local/bin:$PATH
+RUN python -m spacy download en_core_web_sm
+
 # ============================================
 # Stage 2: Runtime
 # ============================================
