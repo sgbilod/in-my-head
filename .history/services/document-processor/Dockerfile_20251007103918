@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile for AI Engine Service
+# Multi-stage Dockerfile for Document Processor Service
 # Optimized for production with minimal image size
 
 # ============================================
@@ -10,20 +10,17 @@ WORKDIR /app
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  gcc \
-  g++ \
-  build-essential \
-  && rm -rf /var/lib/apt/lists/*
+    gcc \
+    g++ \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
 COPY requirements.txt .
 
 # Install Python dependencies to user directory
 RUN pip install --user --no-cache-dir --upgrade pip && \
-  pip install --user --no-cache-dir -r requirements.txt
-
-# Download spaCy model
-RUN python -m spacy download en_core_web_sm
+    pip install --user --no-cache-dir -r requirements.txt
 
 # ============================================
 # Stage 2: Runtime
@@ -32,38 +29,40 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install runtime dependencies only
+# Install runtime dependencies for document processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  curl \
-  && rm -rf /var/lib/apt/lists/*
+    curl \
+    poppler-utils \
+    tesseract-ocr \
+    libreoffice \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy Python packages from builder
 COPY --from=builder /root/.local /root/.local
 
 # Copy application code
 COPY src/ ./src/
-COPY migrations/ ./migrations/
 
 # Make sure scripts in .local are usable
 ENV PATH=/root/.local/bin:$PATH
 
 # Create non-root user for security
-RUN useradd -m -u 1001 aiengine && \
-  chown -R aiengine:aiengine /app
+RUN useradd -m -u 1001 docprocessor && \
+    chown -R docprocessor:docprocessor /app
 
-USER aiengine
+USER docprocessor
 
 # Expose port
-EXPOSE 8002
+EXPOSE 8001
 
-# Health check (comprehensive)
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:8002/health || exit 1
+    CMD curl -f http://localhost:8001/health || exit 1
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
-  PYTHONDONTWRITEBYTECODE=1 \
-  PORT=8002
+    PYTHONDONTWRITEBYTECODE=1 \
+    PORT=8001
 
 # Run application
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8001"]

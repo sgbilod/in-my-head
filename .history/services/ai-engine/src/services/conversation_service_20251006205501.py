@@ -13,7 +13,6 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from uuid import UUID, uuid4
 import asyncpg
-import json
 
 from src.services.rag_service import get_rag_service
 from src.services.llm_service import get_llm_service
@@ -189,17 +188,16 @@ class ConversationService:
         Returns:
             Message record
         """
-        message_id = uuid4()
         async with self.pool.acquire() as conn:
             record = await conn.fetchrow("""
                 INSERT INTO messages (
-                    id, conversation_id, role, content
-                ) VALUES ($1, $2, $3, $4)
+                    conversation_id, role, content
+                ) VALUES ($1, $2, $3)
                 RETURNING 
                     id, conversation_id, role, content,
                     rag_context, citations, model,
                     tokens_used, created_at
-            """, message_id, conversation_id, 'user', content)
+            """, conversation_id, 'user', content)
             
             message = dict(record)
             logger.info(
@@ -299,37 +297,28 @@ class ConversationService:
                 tokens_used = context.total_tokens
         
         # Store assistant message
-        message_id = uuid4()
         async with self.pool.acquire() as conn:
             record = await conn.fetchrow("""
                 INSERT INTO messages (
-                    id, conversation_id, role, content,
+                    conversation_id, role, content,
                     rag_context, citations,
                     model, tokens_used
-                ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7)
                 RETURNING 
                     id, conversation_id, role, content,
                     rag_context, citations, model,
                     tokens_used, created_at
             """,
-                message_id,
                 conversation_id,
                 'assistant',
                 answer,
-                json.dumps(rag_context_json) if rag_context_json else None,
-                json.dumps(citations_json) if citations_json else None,
+                rag_context_json,
+                citations_json,
                 model,
                 tokens_used
             )
             
             message = dict(record)
-            
-            # Parse JSONB fields back to dicts
-            if message.get('rag_context'):
-                message['rag_context'] = json.loads(message['rag_context']) if isinstance(message['rag_context'], str) else message['rag_context']
-            if message.get('citations'):
-                message['citations'] = json.loads(message['citations']) if isinstance(message['citations'], str) else message['citations']
-            
             logger.info(
                 f"Added assistant message to {conversation_id}: "
                 f"{len(answer)} chars, {tokens_used} tokens"
@@ -366,17 +355,7 @@ class ConversationService:
                 LIMIT $2 OFFSET $3
             """, conversation_id, limit, offset)
             
-            messages = []
-            for r in records:
-                message = dict(r)
-                # Parse JSONB fields back to dicts
-                if message.get('rag_context'):
-                    message['rag_context'] = json.loads(message['rag_context']) if isinstance(message['rag_context'], str) else message['rag_context']
-                if message.get('citations'):
-                    message['citations'] = json.loads(message['citations']) if isinstance(message['citations'], str) else message['citations']
-                messages.append(message)
-            
-            return messages
+            return [dict(r) for r in records]
 
 
 # Singleton instance

@@ -366,17 +366,7 @@ class ConversationService:
                 LIMIT $2 OFFSET $3
             """, conversation_id, limit, offset)
             
-            messages = []
-            for r in records:
-                message = dict(r)
-                # Parse JSONB fields back to dicts
-                if message.get('rag_context'):
-                    message['rag_context'] = json.loads(message['rag_context']) if isinstance(message['rag_context'], str) else message['rag_context']
-                if message.get('citations'):
-                    message['citations'] = json.loads(message['citations']) if isinstance(message['citations'], str) else message['citations']
-                messages.append(message)
-            
-            return messages
+            return [dict(r) for r in records]
 
 
 # Singleton instance

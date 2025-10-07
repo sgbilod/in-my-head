@@ -1,0 +1,269 @@
+# Production Docker Compose Configuration
+# Optimized for production deployment with resource limits and health checks
+
+version: "3.8"
+
+services:
+  # ============================================
+  # Infrastructure Services
+  # ============================================
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: inmyhead-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: inmyhead_prod
+      POSTGRES_USER: inmyhead
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./services/ai-engine/migrations:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inmyhead -d inmyhead_prod"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    networks:
+      - inmyhead-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: inmyhead-redis-prod
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    networks:
+      - inmyhead-network
+
+  qdrant:
+    image: qdrant/qdrant:v1.7.4
+    container_name: inmyhead-qdrant-prod
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    networks:
+      - inmyhead-network
+
+  # ============================================
+  # Application Services
+  # ============================================
+
+  ai-engine:
+    build:
+      context: ./services/ai-engine
+      dockerfile: Dockerfile
+    container_name: inmyhead-ai-engine-prod
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://inmyhead:${POSTGRES_PASSWORD}@postgres:5432/inmyhead_prod
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ENVIRONMENT: production
+      LOG_LEVEL: info
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    networks:
+      - inmyhead-network
+
+  document-processor:
+    build:
+      context: ./services/document-processor
+      dockerfile: Dockerfile
+    container_name: inmyhead-doc-processor-prod
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://inmyhead:${POSTGRES_PASSWORD}@postgres:5432/inmyhead_prod
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ENVIRONMENT: production
+      LOG_LEVEL: info
+    ports:
+      - "8001:8001"
+    volumes:
+      - document_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 3G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    networks:
+      - inmyhead-network
+
+  search-service:
+    build:
+      context: ./services/search-service
+      dockerfile: Dockerfile
+    container_name: inmyhead-search-service-prod
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://inmyhead:${POSTGRES_PASSWORD}@postgres:5432/inmyhead_prod
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ENVIRONMENT: production
+      LOG_LEVEL: info
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    networks:
+      - inmyhead-network
+
+  # ============================================
+  # Frontend (Optional - can be served separately)
+  # ============================================
+
+  web-interface:
+    build:
+      context: ./frontend/web-interface
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${API_URL:-http://localhost:8000}
+    container_name: inmyhead-web-interface-prod
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - ai-engine
+      - document-processor
+      - search-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    networks:
+      - inmyhead-network
+
+# ============================================
+# Networks
+# ============================================
+
+networks:
+  inmyhead-network:
+    driver: bridge
+    name: inmyhead-prod-network
+
+# ============================================
+# Volumes
+# ============================================
+
+volumes:
+  postgres_data:
+    name: inmyhead-postgres-data-prod
+  redis_data:
+    name: inmyhead-redis-data-prod
+  qdrant_data:
+    name: inmyhead-qdrant-data-prod
+  document_storage:
+    name: inmyhead-documents-prod

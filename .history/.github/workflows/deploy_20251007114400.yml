@@ -1,0 +1,212 @@
+name: Deploy to Production
+
+on:
+    push:
+        branches: [main]
+    workflow_dispatch:
+        inputs:
+            environment:
+                description: "Deployment environment"
+                required: true
+                default: "production"
+                type: choice
+                options:
+                    - production
+                    - staging
+
+env:
+    REGISTRY: ghcr.io
+    IMAGE_PREFIX: ${{ github.repository_owner }}/inmyhead
+
+jobs:
+    # Build and push Docker images
+    build-and-push:
+        name: Build & Push Docker Images
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+
+        strategy:
+            matrix:
+                service:
+                    - name: ai-engine
+                      path: services/ai-engine
+                    - name: document-processor
+                      path: services/document-processor
+                    - name: search-service
+                      path: services/search-service
+                    - name: web-interface
+                      path: frontend/web-interface
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Log in to Container Registry
+              uses: docker/login-action@v3
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Extract metadata
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}
+                  tags: |
+                      type=ref,event=branch
+                      type=sha,prefix={{branch}}-
+                      type=semver,pattern={{version}}
+                      type=raw,value=latest,enable={{is_default_branch}}
+
+            - name: Build and push image
+              uses: docker/build-push-action@v5
+              with:
+                  context: ./${{ matrix.service.path }}
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+                  build-args: |
+                      VERSION=${{ github.sha }}
+                      BUILD_DATE=${{ github.event.head_commit.timestamp }}
+
+    # Deploy to server
+    deploy:
+        name: Deploy to Server
+        runs-on: ubuntu-latest
+        needs: build-and-push
+        environment:
+            name: ${{ github.event.inputs.environment || 'production' }}
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Configure SSH
+              run: |
+                  mkdir -p ~/.ssh
+                  echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+                  chmod 600 ~/.ssh/deploy_key
+                  ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+
+            - name: Create deployment directory
+              run: |
+                  ssh -i ~/.ssh/deploy_key ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+                    "mkdir -p ~/inmyhead/deployment"
+
+            - name: Copy docker-compose files
+              run: |
+                  scp -i ~/.ssh/deploy_key \
+                    infrastructure/docker/docker-compose.prod.yml \
+                    ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:~/inmyhead/deployment/
+
+            - name: Copy environment configuration
+              run: |
+                  echo "${{ secrets.PRODUCTION_ENV }}" > .env.prod
+                  scp -i ~/.ssh/deploy_key \
+                    .env.prod \
+                    ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:~/inmyhead/deployment/.env
+
+            - name: Pull latest images
+              run: |
+                  ssh -i ~/.ssh/deploy_key ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+                    "cd ~/inmyhead/deployment && \
+                     docker login ${{ env.REGISTRY }} -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} && \
+                     docker-compose -f docker-compose.prod.yml pull"
+
+            - name: Run database migrations
+              run: |
+                  ssh -i ~/.ssh/deploy_key ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+                    "cd ~/inmyhead/deployment && \
+                     docker-compose -f docker-compose.prod.yml run --rm ai-engine \
+                     python /app/scripts/run_collections_migration.py"
+
+            - name: Deploy services
+              run: |
+                  ssh -i ~/.ssh/deploy_key ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+                    "cd ~/inmyhead/deployment && \
+                     docker-compose -f docker-compose.prod.yml up -d --remove-orphans"
+
+            - name: Health check
+              run: |
+                  ssh -i ~/.ssh/deploy_key ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+                    "cd ~/inmyhead/deployment && \
+                     docker-compose -f docker-compose.prod.yml ps"
+
+            - name: Wait for services
+              run: |
+                  echo "Waiting 30 seconds for services to start..."
+                  sleep 30
+
+            - name: Test API endpoint
+              run: |
+                  RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+                    https://${{ secrets.DEPLOY_HOST }}/api/health)
+                  if [ "$RESPONSE" != "200" ]; then
+                    echo "Health check failed with status $RESPONSE"
+                    exit 1
+                  fi
+                  echo "Health check passed!"
+
+    # Rollback on failure
+    rollback:
+        name: Rollback Deployment
+        runs-on: ubuntu-latest
+        needs: deploy
+        if: failure()
+
+        steps:
+            - name: Configure SSH
+              run: |
+                  mkdir -p ~/.ssh
+                  echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+                  chmod 600 ~/.ssh/deploy_key
+                  ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+
+            - name: Restore previous version
+              run: |
+                  ssh -i ~/.ssh/deploy_key ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+                    "cd ~/inmyhead/deployment && \
+                     docker-compose -f docker-compose.prod.yml down && \
+                     docker tag inmyhead-ai-engine:previous inmyhead-ai-engine:latest && \
+                     docker tag inmyhead-document-processor:previous inmyhead-document-processor:latest && \
+                     docker tag inmyhead-search-service:previous inmyhead-search-service:latest && \
+                     docker-compose -f docker-compose.prod.yml up -d"
+
+            - name: Notify rollback
+              run: |
+                  echo "Deployment failed and was rolled back to previous version"
+
+    # Cleanup old images
+    cleanup:
+        name: Cleanup Old Images
+        runs-on: ubuntu-latest
+        needs: deploy
+        if: success()
+
+        steps:
+            - name: Configure SSH
+              run: |
+                  mkdir -p ~/.ssh
+                  echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+                  chmod 600 ~/.ssh/deploy_key
+                  ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+
+            - name: Prune unused Docker images
+              run: |
+                  ssh -i ~/.ssh/deploy_key ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+                    "docker image prune -af --filter 'until=168h'"
+
+            - name: Deployment summary
+              run: |
+                  echo "✅ Deployment successful!"
+                  echo "Version: ${{ github.sha }}"
+                  echo "Environment: ${{ github.event.inputs.environment || 'production' }}"
+                  echo "Timestamp: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
