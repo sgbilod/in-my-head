@@ -1,0 +1,6 @@
+# Procfile
+infra: docker-compose up
+docproc: cd services/document-processor && .venv/Scripts/python src/main.py
+aiengine: cd services/ai-engine && .venv/Scripts/python src/main.py
+apigw: cd services/api-gateway && npm run dev
+search: cd services/search-service && .venv/Scripts/python src/main.py
