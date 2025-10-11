@@ -9,7 +9,7 @@ import os
 from typing import AsyncGenerator
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 import asyncpg
 
 # Import the FastAPI app
@@ -54,8 +54,10 @@ async def db_pool() -> AsyncGenerator[asyncpg.Pool, None]:
 async def client() -> AsyncGenerator[AsyncClient, None]:
     """
     Create an AsyncClient for making HTTP requests to the API.
+    Uses ASGITransport for proper async handling with httpx.
     """
-    async with AsyncClient(app=app, base_url="http://test") as ac:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
 
