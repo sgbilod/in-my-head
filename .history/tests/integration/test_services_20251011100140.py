@@ -15,7 +15,7 @@ SEARCH_SERVICE_URL = "http://localhost:8002"
 RESOURCE_MANAGER_URL = "http://localhost:8003"
 
 
-@pytest_asyncio.fixture(scope="function")
+@pytest.fixture(scope="function")
 async def http_client():
     """Async HTTP client fixture"""
     async with httpx.AsyncClient(timeout=10.0) as client:

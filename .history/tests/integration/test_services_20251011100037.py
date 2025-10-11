@@ -4,8 +4,8 @@ Tests inter-service communication and end-to-end workflows
 """
 
 import pytest
-import pytest_asyncio
 import httpx
+from typing import AsyncGenerator
 
 # Service URLs
 API_GATEWAY_URL = "http://localhost:3000"
@@ -15,8 +15,8 @@ SEARCH_SERVICE_URL = "http://localhost:8002"
 RESOURCE_MANAGER_URL = "http://localhost:8003"
 
 
-@pytest_asyncio.fixture(scope="function")
-async def http_client():
+@pytest.fixture
+async def http_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     """Async HTTP client fixture"""
     async with httpx.AsyncClient(timeout=10.0) as client:
         yield client

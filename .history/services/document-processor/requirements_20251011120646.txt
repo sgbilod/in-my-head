@@ -15,12 +15,12 @@ passlib[bcrypt]==1.7.4
 # Document processing
 PyPDF2==3.0.1
 pdfplumber==0.10.3
-PyMuPDF==1.24.14  # Updated to version with pre-built Windows wheels
+PyMuPDF==1.23.8
 python-docx==1.1.0
 python-pptx==0.6.23
 openpyxl==3.1.2
 python-magic==0.4.27
-Pillow==11.0.0  # Updated for Python 3.13 compatibility
+Pillow==10.1.0
 beautifulsoup4==4.12.2
 markdown==3.5.1
 mistune==3.0.2
