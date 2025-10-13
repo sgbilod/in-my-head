@@ -122,12 +122,21 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
+      - DATABASE_URL=postgresql://inmyhead:inmyhead_dev_pass_change_in_prod@postgres:5432/inmyhead_dev
       - POSTGRES_URL=postgresql://inmyhead:inmyhead_dev_pass_change_in_prod@postgres:5432/inmyhead_dev
       - REDIS_URL=redis://redis:6379
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=inmyhead
       - MINIO_SECRET_KEY=inmyhead_dev_pass_change_in_prod
       - MINIO_SECURE=false
+      # AI Provider Configuration
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-local}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - LLM_PROVIDER=${LLM_PROVIDER:-claude}
+      # AI Provider API Keys
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

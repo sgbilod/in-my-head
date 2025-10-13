@@ -14,7 +14,20 @@ Features:
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
-from sentence_transformers import SentenceTransformer, CrossEncoder
+
+# Optional: sentence-transformers for local re-ranking
+try:
+    from sentence_transformers import SentenceTransformer, CrossEncoder
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
+    SentenceTransformer = None
+    CrossEncoder = None
+    logging.warning(
+        "sentence-transformers not available. Re-ranking will use basic scoring. "
+        "Install with: pip install sentence-transformers"
+    )
+
 import numpy as np
 from collections import defaultdict
 
@@ -32,7 +45,7 @@ class SearchResult:
     score: float
     chunk_index: int
     metadata: Dict[str, Any] = field(default_factory=dict)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -54,7 +67,7 @@ class Citation:
     chunk_index: int
     relevance_score: float
     excerpt: str  # Relevant excerpt from chunk
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -76,7 +89,7 @@ class RAGContext:
     citations: List[Citation]
     total_tokens: int
     strategy: str
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -92,14 +105,14 @@ class RAGContext:
 class RAGService:
     """
     RAG service for intelligent document retrieval and context assembly.
-    
+
     Workflow:
     1. Hybrid search: Vector + keyword search
     2. Re-ranking: Cross-encoder for relevance
     3. Context assembly: Order and deduplicate chunks
     4. Citation extraction: Track sources
     """
-    
+
     def __init__(
         self,
         embedding_model_name: str = "all-MiniLM-L6-v2",
@@ -110,7 +123,7 @@ class RAGService:
     ):
         """
         Initialize RAG service.
-        
+
         Args:
             embedding_model_name: Sentence transformer model for embeddings
             reranker_model_name: Cross-encoder model for re-ranking
@@ -123,32 +136,37 @@ class RAGService:
         self.vector_weight = vector_weight
         self.keyword_weight = keyword_weight
         self.max_context_tokens = max_context_tokens
-        
-        # Load models
-        logger.info(f"Loading embedding model: {embedding_model_name}")
-        self.embedding_model = SentenceTransformer(embedding_model_name)
-        
-        logger.info(f"Loading re-ranker model: {reranker_model_name}")
-        self.reranker = CrossEncoder(reranker_model_name)
-        
+
+        # Load models (if sentence-transformers available)
+        if SENTENCE_TRANSFORMERS_AVAILABLE:
+            logger.info(f"Loading embedding model: {embedding_model_name}")
+            self.embedding_model = SentenceTransformer(embedding_model_name)
+
+            logger.info(f"Loading re-ranker model: {reranker_model_name}")
+            self.reranker = CrossEncoder(reranker_model_name)
+        else:
+            logger.warning("sentence-transformers not available - using API-based embeddings")
+            self.embedding_model = None
+            self.reranker = None
+
         # Get Qdrant service
         self.qdrant = get_qdrant_service()
-        
+
         logger.info("RAG service initialized successfully")
-    
+
     def encode_query(self, query: str) -> List[float]:
         """
         Encode query text to embedding vector.
-        
+
         Args:
             query: Query text
-        
+
         Returns:
             Embedding vector as list of floats
         """
         embedding = self.embedding_model.encode(query)
         return embedding.tolist()
-    
+
     async def vector_search(
         self,
         query: str,
@@ -158,19 +176,19 @@ class RAGService:
     ) -> List[SearchResult]:
         """
         Perform vector similarity search.
-        
+
         Args:
             query: Search query
             collection_name: Qdrant collection name
             limit: Maximum results to return
             filters: Optional Qdrant filters
-        
+
         Returns:
             List of search results sorted by similarity
         """
         # Encode query
         query_vector = self.encode_query(query)
-        
+
         # Search Qdrant
         results = await self.qdrant.search_similar(
             collection_name=collection_name,
@@ -178,7 +196,7 @@ class RAGService:
             limit=limit,
             filters=filters
         )
-        
+
         # Convert to SearchResult objects
         search_results = []
         for result in results:
@@ -190,9 +208,9 @@ class RAGService:
                 chunk_index=result["payload"].get("chunk_index", 0),
                 metadata=result["payload"]
             ))
-        
+
         return search_results
-    
+
     def keyword_search(
         self,
         query: str,
@@ -201,32 +219,32 @@ class RAGService:
     ) -> List[SearchResult]:
         """
         Perform keyword-based search using BM25-like scoring.
-        
+
         Args:
             query: Search query
             chunks: List of chunks to search
             top_k: Number of top results to return
-        
+
         Returns:
             Top-k chunks by keyword relevance
         """
         query_terms = set(query.lower().split())
-        
+
         # Score each chunk
         scored_chunks = []
         for chunk in chunks:
             content_terms = set(chunk.content.lower().split())
-            
+
             # Calculate term frequency
             matches = query_terms & content_terms
             if not matches:
                 continue
-            
+
             # Simple BM25-inspired scoring
             tf = len(matches) / len(query_terms)
             idf = 1.0  # Simplified (would need document frequency)
             keyword_score = tf * idf
-            
+
             chunk_copy = SearchResult(
                 chunk_id=chunk.chunk_id,
                 document_id=chunk.document_id,
@@ -236,12 +254,12 @@ class RAGService:
                 metadata=chunk.metadata
             )
             scored_chunks.append(chunk_copy)
-        
+
         # Sort by score
         scored_chunks.sort(key=lambda x: x.score, reverse=True)
-        
+
         return scored_chunks[:top_k]
-    
+
     def hybrid_search(
         self,
         vector_results: List[SearchResult],
@@ -249,11 +267,11 @@ class RAGService:
     ) -> List[SearchResult]:
         """
         Combine vector and keyword search results with weighted scoring.
-        
+
         Args:
             vector_results: Results from vector search
             keyword_results: Results from keyword search
-        
+
         Returns:
             Combined and re-scored results
         """
@@ -261,15 +279,15 @@ class RAGService:
         def normalize_scores(results: List[SearchResult]) -> List[SearchResult]:
             if not results:
                 return []
-            
+
             scores = [r.score for r in results]
             min_score = min(scores)
             max_score = max(scores)
             score_range = max_score - min_score
-            
+
             if score_range == 0:
                 return results
-            
+
             normalized = []
             for result in results:
                 normalized_score = (result.score - min_score) / score_range
@@ -282,24 +300,24 @@ class RAGService:
                     metadata=result.metadata
                 )
                 normalized.append(result_copy)
-            
+
             return normalized
-        
+
         # Normalize both result sets
         norm_vector = normalize_scores(vector_results)
         norm_keyword = normalize_scores(keyword_results)
-        
+
         # Combine scores
         combined_scores = defaultdict(float)
         all_chunks = {}
-        
+
         # Add vector scores
         for result in norm_vector:
             combined_scores[result.chunk_id] += (
                 result.score * self.vector_weight
             )
             all_chunks[result.chunk_id] = result
-        
+
         # Add keyword scores
         for result in norm_keyword:
             combined_scores[result.chunk_id] += (
@@ -307,7 +325,7 @@ class RAGService:
             )
             if result.chunk_id not in all_chunks:
                 all_chunks[result.chunk_id] = result
-        
+
         # Create final results
         final_results = []
         for chunk_id, score in combined_scores.items():
@@ -320,12 +338,12 @@ class RAGService:
                 chunk_index=chunk.chunk_index,
                 metadata=chunk.metadata
             ))
-        
+
         # Sort by combined score
         final_results.sort(key=lambda x: x.score, reverse=True)
-        
+
         return final_results
-    
+
     def rerank_results(
         self,
         query: str,
@@ -334,24 +352,30 @@ class RAGService:
     ) -> List[SearchResult]:
         """
         Re-rank results using cross-encoder for improved relevance.
-        
+
         Args:
             query: Original query
             results: Search results to re-rank
             top_k: Number of top results to return
-        
+
         Returns:
             Re-ranked results
         """
         if not results:
             return []
-        
+
+        # If reranker not available, return results sorted by original score
+        if not SENTENCE_TRANSFORMERS_AVAILABLE or self.reranker is None:
+            logger.debug("Reranker not available - using original scores")
+            sorted_results = sorted(results, key=lambda x: x.score, reverse=True)
+            return sorted_results[:top_k]
+
         # Prepare query-document pairs
         pairs = [[query, result.content] for result in results]
-        
+
         # Get cross-encoder scores
         rerank_scores = self.reranker.predict(pairs)
-        
+
         # Update scores
         reranked = []
         for result, score in zip(results, rerank_scores):
@@ -363,12 +387,12 @@ class RAGService:
                 chunk_index=result.chunk_index,
                 metadata=result.metadata
             ))
-        
+
         # Sort by new scores
         reranked.sort(key=lambda x: x.score, reverse=True)
-        
+
         return reranked[:top_k]
-    
+
     def assemble_context(
         self,
         query: str,
@@ -377,45 +401,45 @@ class RAGService:
     ) -> RAGContext:
         """
         Assemble context from retrieved chunks.
-        
+
         Args:
             query: Original query
             chunks: Retrieved and ranked chunks
             max_tokens: Override max context tokens
-        
+
         Returns:
             Assembled RAG context with citations
         """
         max_tokens = max_tokens or self.max_context_tokens
-        
+
         # Group chunks by document
         doc_chunks = defaultdict(list)
         for chunk in chunks:
             doc_chunks[chunk.document_id].append(chunk)
-        
+
         # Sort chunks within each document by chunk_index
         for doc_id in doc_chunks:
             doc_chunks[doc_id].sort(key=lambda x: x.chunk_index)
-        
+
         # Assemble context
         context_parts = []
         selected_chunks = []
         citations = []
         total_tokens = 0
-        
+
         for doc_id, doc_chunk_list in doc_chunks.items():
             for chunk in doc_chunk_list:
                 # Estimate tokens (rough: 1 token ≈ 4 chars)
                 chunk_tokens = len(chunk.content) // 4
-                
+
                 if total_tokens + chunk_tokens > max_tokens:
                     break
-                
+
                 # Add chunk to context
                 context_parts.append(chunk.content)
                 selected_chunks.append(chunk)
                 total_tokens += chunk_tokens
-                
+
                 # Create citation
                 citation = Citation(
                     document_id=chunk.document_id,
@@ -429,13 +453,13 @@ class RAGService:
                     if len(chunk.content) > 200 else chunk.content
                 )
                 citations.append(citation)
-            
+
             if total_tokens >= max_tokens:
                 break
-        
+
         # Join context
         context_text = "\n\n---\n\n".join(context_parts)
-        
+
         return RAGContext(
             query=query,
             context_text=context_text,
@@ -444,7 +468,7 @@ class RAGService:
             total_tokens=total_tokens,
             strategy="hybrid_rerank"
         )
-    
+
     async def retrieve(
         self,
         query: str,
@@ -456,7 +480,7 @@ class RAGService:
     ) -> RAGContext:
         """
         Main retrieval method: hybrid search + re-ranking + context assembly.
-        
+
         Args:
             query: User query
             collection_name: Qdrant collection to search
@@ -464,20 +488,20 @@ class RAGService:
             use_reranking: Whether to apply re-ranking
             filters: Optional Qdrant filters (dict)
             collection_id: Optional collection ID to filter documents
-        
+
         Returns:
             RAG context ready for generation
         """
         logger.info(f"Retrieving context for query: {query[:100]}...")
-        
+
         # Add collection_id to filters if provided
         if collection_id:
             if filters is None:
                 filters = {}
             filters["collection_id"] = collection_id
             logger.info(f"Filtering by collection_id: {collection_id}")
-        
-        
+
+
         # 1. Vector search
         vector_results = await self.vector_search(
             query=query,
@@ -486,7 +510,7 @@ class RAGService:
             filters=filters
         )
         logger.info(f"Vector search: {len(vector_results)} results")
-        
+
         # 2. Keyword search (on vector results)
         keyword_results = self.keyword_search(
             query=query,
@@ -494,11 +518,11 @@ class RAGService:
             top_k=10
         )
         logger.info(f"Keyword search: {len(keyword_results)} results")
-        
+
         # 3. Hybrid combination
         hybrid_results = self.hybrid_search(vector_results, keyword_results)
         logger.info(f"Hybrid search: {len(hybrid_results)} results")
-        
+
         # 4. Re-ranking (optional)
         if use_reranking:
             final_results = self.rerank_results(
@@ -509,7 +533,7 @@ class RAGService:
             logger.info(f"Re-ranking: {len(final_results)} results")
         else:
             final_results = hybrid_results[:top_k * 2]
-        
+
         # 5. Assemble context
         context = self.assemble_context(
             query=query,
@@ -519,9 +543,9 @@ class RAGService:
             f"Context assembled: {len(context.chunks)} chunks, "
             f"{context.total_tokens} tokens"
         )
-        
+
         return context
-    
+
     def extract_citations(
         self,
         context: RAGContext,
@@ -529,28 +553,28 @@ class RAGService:
     ) -> List[Citation]:
         """
         Extract which citations were actually used in the generated answer.
-        
+
         Args:
             context: RAG context with all citations
             answer: Generated answer text
-        
+
         Returns:
             List of citations that appear relevant to the answer
         """
         # Simple heuristic: check if citation text appears in answer
         used_citations = []
-        
+
         for citation in context.citations:
             # Check if key terms from citation appear in answer
             citation_terms = set(
                 citation.excerpt.lower().split()[:20]
             )  # First 20 words
             answer_terms = set(answer.lower().split())
-            
+
             overlap = citation_terms & answer_terms
             if len(overlap) >= 3:  # At least 3 matching terms
                 used_citations.append(citation)
-        
+
         return used_citations
 
 
@@ -561,7 +585,7 @@ _rag_service: Optional[RAGService] = None
 def get_rag_service() -> RAGService:
     """
     Get or create the global RAG service instance.
-    
+
     Returns:
         RAGService instance
     """
