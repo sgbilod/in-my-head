@@ -434,7 +434,7 @@ class FileUploadWidget(QWidget):
                     with open(file_path, 'rb') as f:
                         files = {'file': (Path(file_path).name, f)}
                         response = requests.post(
-                            'http://localhost:8001/api/documents/upload',
+                            'http://localhost:8001/documents/upload',
                             files=files,
                             timeout=30
                         )
