@@ -133,3 +133,11 @@ downloads/
 data/local/
 *.pyc
 .pytest_cache/
+
+# VSCode history (contains sensitive data)
+.history/
+**/.history/
+
+# VSCode history (contains sensitive data)
+.history/
+**/.history/
