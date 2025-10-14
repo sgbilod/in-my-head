@@ -309,6 +309,22 @@ class FileUploadWidget(QWidget):
             }
         """)
 
+        self.bulk_upload_btn = QPushButton("📁 Bulk Upload Folder")
+        self.bulk_upload_btn.clicked.connect(self.bulk_upload_folder)
+        self.bulk_upload_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6366f1;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #4f46e5;
+            }
+        """)
+
         self.clear_btn = QPushButton("🗑️ Clear List")
         self.clear_btn.clicked.connect(self.clear_files)
         self.clear_btn.setStyleSheet("""
@@ -346,6 +362,7 @@ class FileUploadWidget(QWidget):
         """)
 
         button_layout.addWidget(self.browse_btn)
+        button_layout.addWidget(self.bulk_upload_btn)
         button_layout.addWidget(self.clear_btn)
         button_layout.addStretch()
         button_layout.addWidget(self.upload_btn)
@@ -402,6 +419,99 @@ class FileUploadWidget(QWidget):
         )
         if files:
             self.add_files(files)
+
+    def bulk_upload_folder(self):
+        """Open folder browser for bulk upload"""
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Select Folder for Bulk Upload",
+            "",
+            QFileDialog.Option.ShowDirsOnly
+        )
+        if folder:
+            # Ask for recursive option
+            reply = QMessageBox.question(
+                self,
+                "Recursive Scan?",
+                "Do you want to scan subfolders recursively?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            recursive = (reply == QMessageBox.StandardButton.Yes)
+
+            # Scan folder for documents
+            self.scan_folder(folder, recursive)
+
+    def scan_folder(self, folder: str, recursive: bool = True):
+        """Scan folder for supported document types"""
+        supported_extensions = ['.pdf', '.docx', '.doc', '.txt', '.md', '.markdown',
+                               '.html', '.htm', '.rtf', '.odt', '.epub']
+
+        files_found = []
+
+        # Show progress dialog
+        progress = QMessageBox(self)
+        progress.setWindowTitle("Scanning Folder")
+        progress.setText(f"Scanning: {folder}\n\nPlease wait...")
+        progress.setStandardButtons(QMessageBox.StandardButton.NoButton)
+        progress.show()
+        QApplication.processEvents()
+
+        try:
+            folder_path = Path(folder)
+
+            if recursive:
+                for ext in supported_extensions:
+                    files_found.extend(folder_path.rglob(f"*{ext}"))
+            else:
+                for ext in supported_extensions:
+                    files_found.extend(folder_path.glob(f"*{ext}"))
+
+            progress.close()
+
+            if not files_found:
+                QMessageBox.information(
+                    self,
+                    "No Files Found",
+                    f"No supported documents found in:\n{folder}\n\n"
+                    f"Supported types: {', '.join(supported_extensions)}"
+                )
+                return
+
+            # Ask for confirmation
+            file_types = {}
+            for file in files_found:
+                ext = file.suffix.lower()
+                file_types[ext] = file_types.get(ext, 0) + 1
+
+            type_breakdown = "\n".join([f"  {ext}: {count} files" for ext, count in sorted(file_types.items())])
+
+            reply = QMessageBox.question(
+                self,
+                "Confirm Bulk Upload",
+                f"Found {len(files_found)} documents:\n\n{type_breakdown}\n\n"
+                f"Add all files to upload queue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+
+            if reply == QMessageBox.StandardButton.Yes:
+                file_paths = [str(f) for f in files_found]
+                self.add_files(file_paths)
+                QMessageBox.information(
+                    self,
+                    "Files Added",
+                    f"✅ Added {len(files_found)} files to upload queue!\n\n"
+                    f"Click 'Upload Files' when ready."
+                )
+
+        except Exception as e:
+            progress.close()
+            QMessageBox.critical(
+                self,
+                "Scan Error",
+                f"Error scanning folder:\n{str(e)}"
+            )
 
     def add_files(self, files: List[str]):
         """Add files to upload list"""
