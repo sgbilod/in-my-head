@@ -3,8 +3,8 @@
 # Backs up all critical Docker volumes and configuration
 
 param(
-    [string]$BackupPath = ".\backups",
-    [switch]$IncludeAIModels = $false
+  [string]$BackupPath = ".\backups",
+  [switch]$IncludeAIModels = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,28 +27,28 @@ Write-Host ""
 # Check if Docker is running
 Write-Host "🔍 Checking Docker status..." -ForegroundColor Yellow
 try {
-    docker ps | Out-Null
-    Write-Host "   ✅ Docker is running" -ForegroundColor Green
+  docker ps | Out-Null
+  Write-Host "   ✅ Docker is running" -ForegroundColor Green
 }
 catch {
-    Write-Host "   ❌ Docker is not running!" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "Please start Docker Desktop first." -ForegroundColor Yellow
-    Read-Host "Press Enter to exit"
-    exit 1
+  Write-Host "   ❌ Docker is not running!" -ForegroundColor Red
+  Write-Host ""
+  Write-Host "Please start Docker Desktop first." -ForegroundColor Yellow
+  Read-Host "Press Enter to exit"
+  exit 1
 }
 Write-Host ""
 
 # Volumes to backup
 $criticalVolumes = @(
-    @{Name = "inmyhead_postgres_data"; Description = "PostgreSQL Database" },
-    @{Name = "inmyhead_qdrant_data"; Description = "Vector Embeddings" },
-    @{Name = "inmyhead_minio_data"; Description = "Document Files" },
-    @{Name = "inmyhead_redis_data"; Description = "Cache Data" }
+  @{Name = "inmyhead_postgres_data"; Description = "PostgreSQL Database" },
+  @{Name = "inmyhead_qdrant_data"; Description = "Vector Embeddings" },
+  @{Name = "inmyhead_minio_data"; Description = "Document Files" },
+  @{Name = "inmyhead_redis_data"; Description = "Cache Data" }
 )
 
 if ($IncludeAIModels) {
-    $criticalVolumes += @{Name = "inmyhead_ai_models"; Description = "AI Models" }
+  $criticalVolumes += @{Name = "inmyhead_ai_models"; Description = "AI Models" }
 }
 
 # Backup each volume
@@ -59,76 +59,119 @@ $totalVolumes = $criticalVolumes.Count
 $current = 0
 
 foreach ($vol in $criticalVolumes) {
-    $current++
-    $volumeName = $vol.Name
-    $description = $vol.Description
+  $current++
+  $volumeName = $vol.Name
+  $description = $vol.Description
 
-    Write-Host "[$current/$totalVolumes] Backing up: $description" -ForegroundColor Yellow
-    Write-Host "           Volume: $volumeName" -ForegroundColor Gray
+  Write-Host "[$current/$totalVolumes] Backing up: $description" -ForegroundColor Yellow
+  Write-Host "           Volume: $volumeName" -ForegroundColor Gray
 
-    # Check if volume exists
-    $volumeExists = docker volume ls --format "{{.Name}}" | Select-String -Pattern "^$volumeName$" -Quiet
+  # Check if volume exists
+  $volumeExists = docker volume ls --format "{{.Name}}" | Select-String -Pattern "^$volumeName$" -Quiet
 
-    if (-not $volumeExists) {
-        Write-Host "           ⚠️  Volume not found (skipping)" -ForegroundColor Yellow
-        Write-Host ""
-        continue
-    }
-
-    # Backup volume using tar
-    $backupFile = Join-Path $backupDir "$volumeName.tar.gz"
-
-    try {
-        docker run --rm `
-            -v "${volumeName}:/data" `
-            -v "${backupDir}:/backup" `
-            alpine `
-            tar czf "/backup/$volumeName.tar.gz" -C /data . 2>&1 | Out-Null
-
-        if (Test-Path $backupFile) {
-            $fileSize = (Get-Item $backupFile).Length / 1MB
-            Write-Host "           ✅ Backed up ($([math]::Round($fileSize, 2)) MB)" -ForegroundColor Green
-        }
-        else {
-            Write-Host "           ❌ Backup failed" -ForegroundColor Red
-        }
-    }
-    catch {
-        Write-Host "           ❌ Error: $_" -ForegroundColor Red
-    }
-
+  if (-not $volumeExists) {
+    Write-Host "           ⚠️  Volume not found (skipping)" -ForegroundColor Yellow
     Write-Host ""
-}
+    continue
+  }
 
-# Backup configuration files
-Write-Host "📄 Backing up configuration files..." -ForegroundColor Cyan
+  # Backup volume using tar
+  $backupFile = Join-Path $backupDir "$volumeName.tar.gz"
 
-$configFiles = @(
-    "infrastructure\docker\docker-compose.dev.yml",
-    "infrastructure\docker\.env"
-)
+  try {
+    docker run --rm `
+      -v "${volumeName}:/data" `
+      -v "${backupDir}:/backup" `
+      alpine `
+      tar czf "/backup/$volumeName.tar.gz" -C /data . 2>&1 | Out-Null
 
-foreach ($configFile in $configFiles) {
-    if (Test-Path $configFile) {
-        $fileName = Split-Path $configFile -Leaf
-        Copy-Item $configFile -Destination (Join-Path $backupDir $fileName)
-        Write-Host "   ✅ $fileName" -ForegroundColor Green
+    if (Test-Path $backupFile) {
+      $fileSize = (Get-Item $backupFile).Length / 1MB
+      Write-Host "           ✅ Backed up ($([math]::Round($fileSize, 2)) MB)" -ForegroundColor Green
     }
     else {
-        Write-Host "   ⚠️  $configFile not found" -ForegroundColor Yellow
+      Write-Host "           ❌ Backup failed" -ForegroundColor Red
     }
+  }
+  catch {
+    Write-Host "           ❌ Error: $_" -ForegroundColor Red
+  }
+
+  Write-Host ""
 }
+
+# Backup configuration files (EXCLUDING SENSITIVE DATA)
+Write-Host "📄 Backing up configuration files..." -ForegroundColor Cyan
+Write-Host "   🔒 Security: Skipping .env files (contains API keys)" -ForegroundColor Yellow
+
+# Safe files to backup (NO SECRETS!)
+$configFiles = @(
+  @{Path = "infrastructure\docker\docker-compose.dev.yml"; Safe = $true }
+)
+
+# Files to SKIP (contain secrets)
+$excludedFiles = @(
+  "infrastructure\docker\.env",
+  ".env",
+  "config.json",  # May contain sensitive paths
+  "*.key",
+  "*.pem",
+  "credentials.json",
+  "secrets.json"
+)
+
+Write-Host "   ⚠️  Excluded files (contain secrets):" -ForegroundColor Red
+foreach ($excluded in $excludedFiles) {
+  Write-Host "      ❌ $excluded" -ForegroundColor DarkGray
+}
+Write-Host ""
+
+foreach ($configFile in $configFiles) {
+  if ($configFile.Safe -and (Test-Path $configFile.Path)) {
+    $fileName = Split-Path $configFile.Path -Leaf
+    Copy-Item $configFile.Path -Destination (Join-Path $backupDir $fileName)
+    Write-Host "   ✅ $fileName (safe)" -ForegroundColor Green
+  }
+  elseif (-not (Test-Path $configFile.Path)) {
+    Write-Host "   ⚠️  $($configFile.Path) not found" -ForegroundColor Yellow
+  }
+}
+
+Write-Host ""
+
+# Create .env template for restoration
+$envTemplate = @"
+# ⚠️  IMPORTANT: This is a template file
+# ========================================
+# The actual .env file was NOT backed up for security reasons.
+# It contains sensitive API keys and credentials.
+#
+# To restore this backup, you need to:
+# 1. Copy your original .env file, OR
+# 2. Create a new .env with your API keys
+#
+# Required environment variables:
+# - OPENAI_API_KEY=sk-...
+# - ANTHROPIC_API_KEY=sk-ant-...
+# - POSTGRES_PASSWORD=...
+# - Other service credentials
+#
+# See infrastructure/docker/.env.example for reference
+"@
+
+$envTemplate | Out-File -FilePath (Join-Path $backupDir ".env.TEMPLATE") -Encoding UTF8
+Write-Host "   📝 Created .env.TEMPLATE (restoration guide)" -ForegroundColor Cyan
 
 Write-Host ""
 
 # Create backup manifest
 $manifest = @{
-    timestamp       = $timestamp
-    date            = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    volumes         = $criticalVolumes | ForEach-Object { $_.Name }
-    backup_location = $backupDir
-    machine         = $env:COMPUTERNAME
-    user            = $env:USERNAME
+  timestamp       = $timestamp
+  date            = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+  volumes         = $criticalVolumes | ForEach-Object { $_.Name }
+  backup_location = $backupDir
+  machine         = $env:COMPUTERNAME
+  user            = $env:USERNAME
 }
 
 $manifest | ConvertTo-Json | Out-File -FilePath (Join-Path $backupDir "manifest.json") -Encoding UTF8
@@ -139,6 +182,16 @@ $readme = @"
 Created: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 Machine: $env:COMPUTERNAME
 User: $env:USERNAME
+
+## ⚠️  SECURITY NOTICE
+
+For your protection, this backup does NOT include:
+- .env files (contain API keys and passwords)
+- credentials.json or secrets.json
+- Private keys or certificates
+
+You will need your original .env file to restore this backup!
+See .env.TEMPLATE in this folder for required variables.
 
 ## Contents
 
@@ -156,7 +209,10 @@ This backup contains the following volumes:
 2. Restore each volume:
    docker run --rm -v <volume-name>:/data -v <backup-path>:/backup alpine sh -c "cd /data && tar xzf /backup/<volume-name>.tar.gz"
 
-3. Restart services:
+3. ⚠️  IMPORTANT: Restore your .env file:
+   Copy your original .env to infrastructure/docker/.env
+
+4. Restart services:
    docker-compose up -d
 
 ## Notes
@@ -188,40 +244,51 @@ Write-Host ""
 # Offer to create archive
 $createZip = Read-Host "Create ZIP archive? (y/n)"
 if ($createZip -eq "y" -or $createZip -eq "Y") {
+  Write-Host ""
+  Write-Host "📦 Creating ZIP archive..." -ForegroundColor Yellow
+
+  $zipPath = "$backupDir.zip"
+
+  try {
+    Compress-Archive -Path $backupDir -DestinationPath $zipPath -Force
+    $zipSize = (Get-Item $zipPath).Length / 1MB
+
+    Write-Host "   ✅ Archive created!" -ForegroundColor Green
+    Write-Host "   Location: $zipPath" -ForegroundColor Cyan
+    Write-Host "   Size: $([math]::Round($zipSize, 2)) MB" -ForegroundColor White
+
+    # Ask to delete uncompressed backup
     Write-Host ""
-    Write-Host "📦 Creating ZIP archive..." -ForegroundColor Yellow
-
-    $zipPath = "$backupDir.zip"
-
-    try {
-        Compress-Archive -Path $backupDir -DestinationPath $zipPath -Force
-        $zipSize = (Get-Item $zipPath).Length / 1MB
-
-        Write-Host "   ✅ Archive created!" -ForegroundColor Green
-        Write-Host "   Location: $zipPath" -ForegroundColor Cyan
-        Write-Host "   Size: $([math]::Round($zipSize, 2)) MB" -ForegroundColor White
-
-        # Ask to delete uncompressed backup
-        Write-Host ""
-        $deleteDir = Read-Host "Delete uncompressed backup folder? (y/n)"
-        if ($deleteDir -eq "y" -or $deleteDir -eq "Y") {
-            Remove-Item -Path $backupDir -Recurse -Force
-            Write-Host "   ✅ Uncompressed backup deleted" -ForegroundColor Green
-        }
+    $deleteDir = Read-Host "Delete uncompressed backup folder? (y/n)"
+    if ($deleteDir -eq "y" -or $deleteDir -eq "Y") {
+      Remove-Item -Path $backupDir -Recurse -Force
+      Write-Host "   ✅ Uncompressed backup deleted" -ForegroundColor Green
     }
-    catch {
-        Write-Host "   ❌ Failed to create ZIP: $_" -ForegroundColor Red
-    }
+  }
+  catch {
+    Write-Host "   ❌ Failed to create ZIP: $_" -ForegroundColor Red
+  }
 }
 
 Write-Host ""
 Write-Host "🎉 Backup completed successfully!" -ForegroundColor Magenta
 Write-Host ""
-Write-Host "💡 Recommendations:" -ForegroundColor Cyan
-Write-Host "   1. Copy backup to external drive" -ForegroundColor White
-Write-Host "   2. Store securely (contains your data!)" -ForegroundColor White
-Write-Host "   3. Test restore periodically" -ForegroundColor White
-Write-Host "   4. Schedule regular backups (weekly recommended)" -ForegroundColor White
+Write-Host "� SECURITY REMINDER:" -ForegroundColor Red -BackgroundColor Yellow
+Write-Host "   ⚠️  .env file NOT included (contains API keys)" -ForegroundColor Yellow
+Write-Host "   ⚠️  Keep your .env file separate and secure!" -ForegroundColor Yellow
+Write-Host "   ⚠️  NEVER upload backups to GitHub or public places!" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "�� Recommendations:" -ForegroundColor Cyan
+Write-Host "   1. Copy backup to external drive (not cloud!)" -ForegroundColor White
+Write-Host "   2. Store securely (offline storage preferred)" -ForegroundColor White
+Write-Host "   3. Keep .env file in a password manager" -ForegroundColor White
+Write-Host "   4. Test restore periodically" -ForegroundColor White
+Write-Host "   5. Schedule regular backups (weekly recommended)" -ForegroundColor White
+Write-Host ""
+Write-Host "🚫 DO NOT:" -ForegroundColor Red
+Write-Host "   ❌ Upload to GitHub" -ForegroundColor Red
+Write-Host "   ❌ Share via email or cloud storage" -ForegroundColor Red
+Write-Host "   ❌ Post in public forums" -ForegroundColor Red
 Write-Host ""
 
 Read-Host "Press Enter to exit"

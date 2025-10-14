@@ -109,6 +109,13 @@ out/
 secrets.json
 credentials.json
 
+# 🔒 CRITICAL: Backup files contain sensitive data!
+backups/
+backup_*.zip
+backup_*/
+*.tar.gz
+config.json
+
 # MacOS
 .DS_Store
 .AppleDouble
