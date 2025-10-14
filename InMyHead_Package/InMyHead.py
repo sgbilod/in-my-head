@@ -452,17 +452,11 @@ class FileUploadWidget(QWidget):
 
         files_found = []
 
-        # Show progress dialog using QProgressDialog (better lifecycle management)
-        from PyQt6.QtWidgets import QProgressDialog
-        progress = QProgressDialog(
-            f"Scanning folder{'s recursively' if recursive else ''}...\n\n{folder}",
-            None,  # No cancel button
-            0, 0,  # Indeterminate progress
-            self
-        )
+        # Show progress dialog
+        progress = QMessageBox(self)
         progress.setWindowTitle("Scanning Folder")
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setMinimumDuration(0)  # Show immediately
+        progress.setText(f"Scanning: {folder}\n\nPlease wait...")
+        progress.setStandardButtons(QMessageBox.StandardButton.NoButton)
         progress.show()
         QApplication.processEvents()
 
@@ -476,10 +470,7 @@ class FileUploadWidget(QWidget):
                 for ext in supported_extensions:
                     files_found.extend(folder_path.glob(f"*{ext}"))
 
-            # Properly close and destroy the progress dialog
             progress.close()
-            progress.deleteLater()
-            QApplication.processEvents()  # Process the deletion
 
             if not files_found:
                 QMessageBox.information(
@@ -518,14 +509,7 @@ class FileUploadWidget(QWidget):
                 )
 
         except Exception as e:
-            # Ensure progress dialog is closed even on error
-            try:
-                progress.close()
-                progress.deleteLater()
-                QApplication.processEvents()
-            except:
-                pass
-
+            progress.close()
             QMessageBox.critical(
                 self,
                 "Scan Error",
