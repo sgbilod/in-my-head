@@ -1,7 +1,7 @@
 # FastAPI and web framework
 fastapi==0.108.0
 uvicorn[standard]==0.25.0
-python-multipart==0.0.6
+python-multipart==0.0.20
 
 # Vector database
 qdrant-client==1.7.0
