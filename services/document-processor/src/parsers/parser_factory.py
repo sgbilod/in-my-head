@@ -5,7 +5,13 @@ Selects the appropriate parser based on file type
 
 from pathlib import Path
 from typing import Optional
-import magic
+
+try:
+    import magic  # python-magic; requires libmagic (often absent on Windows)
+    _MAGIC_AVAILABLE = True
+except Exception:  # ImportError, or libmagic load failure
+    magic = None
+    _MAGIC_AVAILABLE = False
 
 from .base_parser import BaseParser, UnsupportedFormatError
 from .txt_parser import TxtParser
@@ -76,6 +82,8 @@ class ParserFactory:
             MIME type string
         """
         try:
+            if not _MAGIC_AVAILABLE:
+                raise RuntimeError("libmagic not available")
             mime = magic.Magic(mime=True)
             return mime.from_file(str(file_path))
         except Exception:

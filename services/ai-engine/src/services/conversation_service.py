@@ -214,7 +214,7 @@ class ConversationService:
         conversation_id: UUID,
         content: str,
         query: str,
-        model: str = "claude-sonnet-4",
+        model: str = "llama3",
         temperature: float = 0.7,
         use_rag: bool = True,
         top_k: int = 5,
@@ -392,9 +392,10 @@ def get_conversation_service(db_url: Optional[str] = None) -> ConversationServic
     
     if _conversation_service is None:
         if db_url is None:
-            db_url = (
-                "postgresql://inmyhead:inmyhead_dev_pass@"
-                "localhost:5434/inmyhead_dev"
+            import os
+            db_url = os.getenv(
+                "DATABASE_URL",
+                "postgresql://inmyhead_user:dev_password_123@localhost:5432/inmyhead",
             )
         _conversation_service = ConversationService(db_url)
     

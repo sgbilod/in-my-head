@@ -2,7 +2,7 @@
 Tests for LLM service.
 
 Covers:
-- Multi-provider support (Claude, GPT, Gemini)
+- Multi-provider support (local Ollama, Claude, Gemini)
 - Response generation
 - Streaming functionality
 - Error handling and fallbacks
@@ -22,6 +22,16 @@ from src.services.rag_service import RAGContext, SearchResult, Citation
 
 
 # ==================== Fixtures ====================
+
+@pytest.fixture(autouse=True)
+def _disable_ollama_by_default():
+    """Disable the Ollama connectivity probe in __init__ for all tests.
+
+    Tests that need Ollama enabled patch httpx.get themselves.
+    """
+    with patch('src.services.llm_service.httpx.get', side_effect=Exception("no ollama")):
+        yield
+
 
 @pytest.fixture
 def sample_rag_context():
@@ -56,12 +66,12 @@ def sample_rag_context():
 
 @pytest.fixture
 def llm_service():
-    """LLM service with mock clients."""
-    service = LLMService(
-        anthropic_api_key="test-anthropic-key",
-        openai_api_key="test-openai-key",
-        google_api_key="test-google-key"
-    )
+    """LLM service with mock clients (Ollama check disabled)."""
+    with patch('src.services.llm_service.httpx.get', side_effect=Exception("no ollama")):
+        service = LLMService(
+            anthropic_api_key="test-anthropic-key",
+            google_api_key="test-google-key"
+        )
     return service
 
 
@@ -186,51 +196,6 @@ class TestClaudeIntegration:
         assert call_kwargs['max_tokens'] == 2000
 
 
-# ==================== GPT Integration Tests ====================
-
-class TestGPTIntegration:
-    """Test GPT/OpenAI integration."""
-    
-    @pytest.mark.asyncio
-    async def test_generate_gpt_success(self, sample_rag_context):
-        """Test successful GPT response generation."""
-        # Mock OpenAI response
-        mock_choice = Mock()
-        mock_choice.message.content = "Machine learning is AI."
-        mock_choice.finish_reason = "stop"
-        
-        mock_response = Mock()
-        mock_response.choices = [mock_choice]
-        mock_response.usage.total_tokens = 150
-        
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=mock_response
-        )
-        
-        service = LLMService(openai_api_key="test-key")
-        service.openai_client = mock_client
-        
-        # Generate response
-        prompt = service.build_prompt("What is ML?", sample_rag_context)
-        response = await service.generate_gpt(prompt)
-        
-        # Verify response
-        assert isinstance(response, LLMResponse)
-        assert response.answer == "Machine learning is AI."
-        assert response.model == "gpt-4-turbo-preview"
-        assert response.tokens_used == 150
-        assert response.finish_reason == "stop"
-    
-    @pytest.mark.asyncio
-    async def test_generate_gpt_no_api_key(self):
-        """Test GPT generation without API key."""
-        service = LLMService()
-        
-        with pytest.raises(ValueError, match="OpenAI API key not configured"):
-            await service.generate_gpt("test prompt")
-
-
 # ==================== Gemini Integration Tests ====================
 
 class TestGeminiIntegration:
@@ -294,27 +259,6 @@ class TestUnifiedGeneration:
         service.generate_claude.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_generate_routes_to_gpt(self, sample_rag_context):
-        """Test that 'gpt' model routes to GPT."""
-        service = LLMService(openai_api_key="test-key")
-        service.generate_gpt = AsyncMock(
-            return_value=LLMResponse(
-                answer="Test",
-                model="gpt-4",
-                tokens_used=100,
-                finish_reason="stop"
-            )
-        )
-        
-        await service.generate(
-            query="Test",
-            context=sample_rag_context,
-            model="gpt-4-turbo"
-        )
-        
-        service.generate_gpt.assert_called_once()
-    
-    @pytest.mark.asyncio
     async def test_generate_routes_to_gemini(self, sample_rag_context):
         """Test that 'gemini' model routes to Gemini."""
         service = LLMService(google_api_key="test-key")
@@ -337,8 +281,9 @@ class TestUnifiedGeneration:
     
     @pytest.mark.asyncio
     async def test_generate_defaults_to_claude(self, sample_rag_context):
-        """Test that unknown model defaults to Claude."""
-        service = LLMService(anthropic_api_key="test-key")
+        """Test that unknown model defaults to Claude when Ollama is unavailable."""
+        with patch('src.services.llm_service.httpx.get', side_effect=Exception("no ollama")):
+            service = LLMService(anthropic_api_key="test-key")
         service.generate_claude = AsyncMock(
             return_value=LLMResponse(
                 answer="Test",
@@ -394,40 +339,10 @@ class TestStreaming:
         assert chunks == ["Machine ", "learning ", "is ", "AI."]
     
     @pytest.mark.asyncio
-    async def test_stream_gpt(self, sample_rag_context):
-        """Test GPT streaming."""
-        # Mock streaming response
-        async def mock_stream():
-            for text in ["Machine ", "learning ", "is ", "AI."]:
-                mock_chunk = Mock()
-                mock_chunk.choices = [Mock()]
-                mock_chunk.choices[0].delta.content = text
-                yield mock_chunk
-        
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=mock_stream()
-        )
-        
-        service = LLMService(openai_api_key="test-key")
-        service.openai_client = mock_client
-        
-        # Collect streamed chunks
-        chunks = []
-        async for chunk in service.generate_stream(
-            query="Test",
-            context=sample_rag_context,
-            model="gpt-4"
-        ):
-            chunks.append(chunk)
-        
-        # Verify streaming
-        assert chunks == ["Machine ", "learning ", "is ", "AI."]
-    
-    @pytest.mark.asyncio
     async def test_stream_fallback_non_streaming(self, sample_rag_context):
-        """Test fallback to non-streaming for unsupported providers."""
-        service = LLMService(google_api_key="test-key")
+        """Test fallback to non-streaming for unsupported providers (Ollama unavailable)."""
+        with patch('src.services.llm_service.httpx.get', side_effect=Exception("no ollama")):
+            service = LLMService(google_api_key="test-key")
         service.generate = AsyncMock(
             return_value=LLMResponse(
                 answer="Complete response",
@@ -462,7 +377,6 @@ class TestErrorHandling:
         
         # Should initialize but have no clients
         assert service.anthropic_client is None
-        assert service.openai_client is None
         assert service.genai_model is None
     
     @pytest.mark.asyncio
@@ -499,20 +413,100 @@ class TestErrorHandling:
 
 class TestSingleton:
     """Test singleton pattern."""
-    
+
+    def setup_method(self):
+        import src.services.llm_service as mod
+        mod._llm_service = None
+
     def test_get_llm_service_singleton(self):
         """Test that get_llm_service returns singleton."""
-        service1 = get_llm_service()
-        service2 = get_llm_service()
-        
+        with patch('src.services.llm_service.httpx.get', side_effect=Exception("no")):
+            service1 = get_llm_service()
+            service2 = get_llm_service()
         assert service1 is service2
-    
+
     def test_get_llm_service_with_keys(self):
         """Test singleton with API keys."""
-        service = get_llm_service(
-            anthropic_api_key="test-key-1",
-            openai_api_key="test-key-2"
-        )
-        
-        # Should initialize with keys (only on first call)
+        with patch('src.services.llm_service.httpx.get', side_effect=Exception("no")):
+            service = get_llm_service(
+                anthropic_api_key="test-key-1",
+                google_api_key="test-key-2"
+            )
         assert service is not None
+
+
+# ==================== Ollama Tests ====================
+
+class TestOllama:
+    """Test local Ollama provider."""
+
+    def test_ollama_detected_when_available(self):
+        """Ollama marked available when /api/tags responds 200."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"models": [{"name": "llama3:latest"}]}
+        with patch('src.services.llm_service.httpx.get', return_value=mock_resp):
+            service = LLMService()
+        assert service.ollama_available is True
+
+    def test_ollama_unavailable_on_connection_error(self):
+        """Ollama marked unavailable when probe raises."""
+        with patch('src.services.llm_service.httpx.get', side_effect=Exception("down")):
+            service = LLMService()
+        assert service.ollama_available is False
+
+    @pytest.mark.asyncio
+    async def test_generate_ollama_raises_when_unavailable(self, sample_rag_context):
+        """generate_ollama raises ValueError if Ollama is down."""
+        with patch('src.services.llm_service.httpx.get', side_effect=Exception("down")):
+            service = LLMService()
+        with pytest.raises(ValueError, match="Ollama"):
+            await service.generate_ollama("test prompt")
+
+    @pytest.mark.asyncio
+    async def test_generate_ollama_success(self):
+        """generate_ollama parses the Ollama /api/generate response."""
+        mock_tags = MagicMock()
+        mock_tags.status_code = 200
+        mock_tags.json.return_value = {"models": [{"name": "llama3:latest"}]}
+        with patch('src.services.llm_service.httpx.get', return_value=mock_tags):
+            service = LLMService()
+
+        mock_post_resp = MagicMock()
+        mock_post_resp.raise_for_status = MagicMock()
+        mock_post_resp.json.return_value = {
+            "response": "Machine learning is a subset of AI.",
+            "eval_count": 20,
+            "prompt_eval_count": 30,
+            "done": True,
+        }
+        mock_client = AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.post = AsyncMock(return_value=mock_post_resp)
+
+        with patch('src.services.llm_service.httpx.AsyncClient', return_value=mock_client):
+            result = await service.generate_ollama("prompt", model="llama3")
+
+        assert result.answer == "Machine learning is a subset of AI."
+        assert result.tokens_used == 50
+        assert result.model == "llama3"
+        assert result.finish_reason == "stop"
+
+    @pytest.mark.asyncio
+    async def test_generate_routes_to_ollama(self, sample_rag_context):
+        """generate() routes ollama model names to generate_ollama."""
+        mock_tags = MagicMock()
+        mock_tags.status_code = 200
+        mock_tags.json.return_value = {"models": [{"name": "llama3:latest"}]}
+        with patch('src.services.llm_service.httpx.get', return_value=mock_tags):
+            service = LLMService()
+
+        service.generate_ollama = AsyncMock(
+            return_value=LLMResponse(
+                answer="ok", model="llama3", tokens_used=10, finish_reason="stop"
+            )
+        )
+        await service.generate(
+            query="Test", context=sample_rag_context, model="llama3"
+        )
+        service.generate_ollama.assert_called_once()

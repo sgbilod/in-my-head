@@ -14,7 +14,8 @@ export default defineConfig({
     port: 3001,
     proxy: {
       '/api': {
-        target: 'http://localhost:8001',
+        // 127.0.0.1 (not localhost) so Node uses IPv4 — uvicorn binds 127.0.0.1 only
+        target: 'http://127.0.0.1:8001',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },

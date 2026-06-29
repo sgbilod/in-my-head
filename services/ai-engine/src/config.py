@@ -34,8 +34,7 @@ class Settings(BaseSettings):
     max_chunk_size: int = 500
     chunk_overlap: int = 50
 
-    # LLM Provider Configuration
-    openai_api_key: Optional[str] = None
+    # LLM Provider Configuration (local-first; no OpenAI per values rule)
     anthropic_api_key: Optional[str] = None
     cohere_api_key: Optional[str] = None
 

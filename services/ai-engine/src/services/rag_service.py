@@ -186,6 +186,9 @@ class RAGService:
         Returns:
             List of search results sorted by similarity
         """
+        if not query or not query.strip():
+            raise ValueError("Query cannot be empty or whitespace")
+
         # Encode query
         query_vector = self.encode_query(query)
 

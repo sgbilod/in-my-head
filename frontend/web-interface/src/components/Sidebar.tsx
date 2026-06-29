@@ -1,13 +1,12 @@
 import { NavLink } from 'react-router-dom';
-import { Home, FileText, FolderOpen, Search, MessageSquare, Settings } from 'lucide-react';
+import { Home, FileText, Search, MessageSquare } from 'lucide-react';
 
+// v0.1.0 nav — only the working pages (Collections/Settings deferred).
 const navItems = [
   { to: '/', icon: Home, label: 'Dashboard' },
   { to: '/documents', icon: FileText, label: 'Documents' },
-  { to: '/collections', icon: FolderOpen, label: 'Collections' },
   { to: '/search', icon: Search, label: 'Search' },
   { to: '/chat', icon: MessageSquare, label: 'Chat' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 export default function Sidebar() {

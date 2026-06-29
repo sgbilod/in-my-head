@@ -10,7 +10,7 @@ FastAPI endpoints for document chunking operations:
 
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 import logging
 
 from src.services.chunker_service import (
@@ -47,16 +47,15 @@ class ChunkDocumentRequest(BaseModel):
         le=500
     )
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "document_id": "123e4567-e89b-12d3-a456-426614174000",
-                "content": "This is a sample document. It has multiple sentences. Each sentence adds meaning.",
-                "strategy": "sentence",
-                "chunk_size": 500,
-                "chunk_overlap": 50
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "document_id": "123e4567-e89b-12d3-a456-426614174000",
+            "content": "This is a sample document. It has multiple sentences. Each sentence adds meaning.",
+            "strategy": "sentence",
+            "chunk_size": 500,
+            "chunk_overlap": 50
         }
+    })
 
 
 class ChunkMetadataResponse(BaseModel):
@@ -86,38 +85,37 @@ class ChunkDocumentResponse(BaseModel):
     statistics: dict
     processing_time_ms: float
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "document_id": "123e4567-e89b-12d3-a456-426614174000",
-                "strategy": "sentence",
-                "total_chunks": 5,
-                "chunks": [
-                    {
-                        "content": "This is a sample document. It has multiple sentences.",
-                        "metadata": {
-                            "chunk_id": "doc_chunk_0",
-                            "document_id": "123e4567-e89b-12d3-a456-426614174000",
-                            "chunk_index": 0,
-                            "start_position": 0,
-                            "end_position": 54,
-                            "sentence_count": 2,
-                            "word_count": 10,
-                            "char_count": 54
-                        }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "document_id": "123e4567-e89b-12d3-a456-426614174000",
+            "strategy": "sentence",
+            "total_chunks": 5,
+            "chunks": [
+                {
+                    "content": "This is a sample document. It has multiple sentences.",
+                    "metadata": {
+                        "chunk_id": "doc_chunk_0",
+                        "document_id": "123e4567-e89b-12d3-a456-426614174000",
+                        "chunk_index": 0,
+                        "start_position": 0,
+                        "end_position": 54,
+                        "sentence_count": 2,
+                        "word_count": 10,
+                        "char_count": 54
                     }
-                ],
-                "statistics": {
-                    "total_chunks": 5,
-                    "avg_chunk_size": 120.5,
-                    "min_chunk_size": 54,
-                    "max_chunk_size": 200,
-                    "avg_word_count": 25,
-                    "avg_sentence_count": 3
-                },
-                "processing_time_ms": 125.5
-            }
+                }
+            ],
+            "statistics": {
+                "total_chunks": 5,
+                "avg_chunk_size": 120.5,
+                "min_chunk_size": 54,
+                "max_chunk_size": 200,
+                "avg_word_count": 25,
+                "avg_sentence_count": 3
+            },
+            "processing_time_ms": 125.5
         }
+    })
 
 
 class ChunkStatisticsResponse(BaseModel):

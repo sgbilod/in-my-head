@@ -2,10 +2,13 @@
 Tests for Collections API Routes
 
 Test suite for collection API endpoints.
+Requires PostgreSQL (integration marker).
 """
 
 import pytest
 import pytest_asyncio
+
+pytestmark = pytest.mark.integration
 from httpx import AsyncClient
 from uuid import uuid4
 import asyncpg

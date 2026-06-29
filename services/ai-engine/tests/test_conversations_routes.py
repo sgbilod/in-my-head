@@ -1,9 +1,12 @@
 """
 Tests for Conversations API Routes
 
-Comprehensive test coverage for conversations.py endpoints
+Comprehensive test coverage for conversations.py endpoints.
+Requires running app with DB (integration marker).
 """
 import pytest
+
+pytestmark = pytest.mark.integration
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 from datetime import datetime

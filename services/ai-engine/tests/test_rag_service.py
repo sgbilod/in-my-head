@@ -62,21 +62,20 @@ def mock_qdrant():
 
 @pytest.fixture
 def mock_embedding_model():
-    """Mock sentence transformer."""
-    with patch('src.services.rag_service.SentenceTransformer') as mock:
-        model = Mock()
-        model.encode.return_value = Mock(tolist=lambda: [0.1] * 384)
-        mock.return_value = model
+    """Mock sentence transformer + enable flag."""
+    model = Mock()
+    model.encode.return_value = Mock(tolist=lambda: [0.1] * 384)
+    with patch('src.services.rag_service.SENTENCE_TRANSFORMERS_AVAILABLE', True), \
+         patch('src.services.rag_service.SentenceTransformer', return_value=model):
         yield model
 
 
 @pytest.fixture
 def mock_reranker():
     """Mock cross-encoder."""
-    with patch('src.services.rag_service.CrossEncoder') as mock:
-        reranker = Mock()
-        reranker.predict.return_value = [0.9, 0.8, 0.7]
-        mock.return_value = reranker
+    reranker = Mock()
+    reranker.predict.return_value = [0.9, 0.8, 0.7]
+    with patch('src.services.rag_service.CrossEncoder', return_value=reranker):
         yield reranker
 
 
@@ -207,7 +206,7 @@ class TestRAGService:
         
         assert len(results) > 0
         # Should find "machine learning" in first chunk
-        assert results[0].content.__contains__("machine")
+        assert "machine" in results[0].content.lower()
     
     def test_hybrid_search(self, rag_service):
         """Test hybrid search combining vector and keyword."""

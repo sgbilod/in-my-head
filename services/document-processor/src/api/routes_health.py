@@ -7,8 +7,9 @@ Provides:
 - Version information
 """
 
+import os
 import time
-import redis
+import httpx
 from typing import List
 from fastapi import APIRouter, status as http_status
 from fastapi.responses import JSONResponse
@@ -24,88 +25,48 @@ START_TIME = time.time()
 # Version
 VERSION = "1.0.0"
 
+AI_ENGINE_URL = os.getenv("AI_ENGINE_URL", "http://127.0.0.1:8001")
 
-def check_redis_health() -> ServiceHealth:
-    """
-    Check Redis health.
 
-    Returns:
-        Health status
-    """
+def check_parser_health() -> ServiceHealth:
+    """Verify the parser layer imports and reports its supported formats."""
     try:
-        client = redis.Redis(host="localhost", port=6379, db=0)
-        client.ping()
+        from ..parsers import ParserFactory
+
+        formats = ParserFactory.get_supported_formats()
         return ServiceHealth(
-            name="redis",
+            name="parsers",
             status="healthy",
-            details="Connected"
+            details=f"{len(formats)} formats: {', '.join(formats)}",
         )
     except Exception as e:
         return ServiceHealth(
-            name="redis",
+            name="parsers",
             status="unhealthy",
-            details=f"Connection failed: {str(e)}"
+            details=f"Parser layer failed to load: {e}",
         )
 
 
-def check_qdrant_health() -> ServiceHealth:
-    """
-    Check Qdrant health.
-
-    Returns:
-        Health status
-    """
+def check_ai_engine_health() -> ServiceHealth:
+    """Verify the ai-engine (the ingestion target) is reachable."""
     try:
-        from qdrant_client import QdrantClient
-
-        client = QdrantClient(host="localhost", port=6333)
-        # Try to get collections (will fail if not connected)
-        client.get_collections()
-
-        return ServiceHealth(
-            name="qdrant",
-            status="healthy",
-            details="Connected"
-        )
-    except Exception as e:
-        return ServiceHealth(
-            name="qdrant",
-            status="unhealthy",
-            details=f"Connection failed: {str(e)}"
-        )
-
-
-def check_celery_health() -> ServiceHealth:
-    """
-    Check Celery health.
-
-    Returns:
-        Health status
-    """
-    try:
-        from ..jobs import celery_app
-
-        # Check if workers are active
-        stats = celery_app.control.inspect().stats()
-
-        if stats:
-            worker_count = len(stats)
+        resp = httpx.get(f"{AI_ENGINE_URL}/documents/health", timeout=3.0)
+        if resp.status_code == 200:
             return ServiceHealth(
-                name="celery",
+                name="ai-engine",
                 status="healthy",
-                details=f"{worker_count} workers active"
+                details=f"Reachable at {AI_ENGINE_URL}",
             )
-        else:
-            return ServiceHealth(
-                name="celery",
-                status="degraded",
-                details="No workers active"
-            )
+        return ServiceHealth(
+            name="ai-engine",
+            status="degraded",
+            details=f"Unexpected status {resp.status_code}",
+        )
     except Exception as e:
         return ServiceHealth(
-            name="celery",
-            status="unhealthy",
-            details=f"Check failed: {str(e)}"
+            name="ai-engine",
+            status="degraded",
+            details=f"Unreachable at {AI_ENGINE_URL}: {e}",
         )
 
 
@@ -137,9 +98,8 @@ async def health_check():
 
     # Check services
     services: List[ServiceHealth] = [
-        check_redis_health(),
-        check_qdrant_health(),
-        check_celery_health(),
+        check_parser_health(),
+        check_ai_engine_health(),
     ]
 
     # Determine overall status

@@ -1,329 +1,203 @@
 """
-Tests for Redis caching service
+Tests for Redis caching service.
 
-Comprehensive test coverage for cache_service.py
+Tests the actual RedisCacheService API:
+- cache_query_result / get_query_result
+- cache_embedding / get_embedding
+- invalidate_document_cache
+- get_cache_stats
 """
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 import json
-import hashlib
-from datetime import datetime, timedelta
-
-# Mock redis before importing cache_service
-redis_mock = MagicMock()
+import numpy as np
 
 
 @pytest.fixture
 def mock_redis():
-    """Mock Redis client"""
+    """Mock Redis client with all methods used by RedisCacheService."""
     mock = MagicMock()
     mock.get = AsyncMock(return_value=None)
-    mock.set = AsyncMock(return_value=True)
+    mock.setex = AsyncMock(return_value=True)
     mock.delete = AsyncMock(return_value=1)
-    mock.keys = AsyncMock(return_value=[])
-    mock.ttl = AsyncMock(return_value=1800)
     mock.ping = AsyncMock(return_value=True)
+    mock.info = AsyncMock(return_value={"keyspace_hits": 10, "keyspace_misses": 5})
+    mock.scan_iter = MagicMock(return_value=AsyncIteratorMock([]))
     return mock
+
+
+class AsyncIteratorMock:
+    """Helper to mock async iterators like scan_iter."""
+    def __init__(self, items):
+        self.items = list(items)
+    def __aiter__(self):
+        return self
+    async def __anext__(self):
+        if not self.items:
+            raise StopAsyncIteration
+        return self.items.pop(0)
 
 
 @pytest.fixture
 def cache_service(mock_redis):
-    """Create cache service with mocked Redis"""
-    with patch('redis.asyncio.Redis', return_value=mock_redis):
-        from src.services.cache_service import RedisCacheService
-        service = RedisCacheService()
-        service.redis = mock_redis
-        return service
+    """Create cache service with mocked Redis client."""
+    from src.services.cache_service import RedisCacheService
+    service = RedisCacheService()
+    service._client = mock_redis
+    return service
 
 
 @pytest.mark.asyncio
 async def test_cache_query_result(cache_service, mock_redis):
-    """Test caching query results"""
-    query = "test query"
-    results = [{"doc_id": "1", "score": 0.9}]
-    
-    # Cache results
-    await cache_service.cache_query_result(query, results)
-    
-    # Verify set was called
-    mock_redis.set.assert_called_once()
-    call_args = mock_redis.set.call_args
-    assert call_args[1]['ex'] == 1800  # 30 minutes TTL
+    """Test caching query results calls setex with correct TTL."""
+    result = {"doc_id": "1", "score": 0.9}
+    await cache_service.cache_query_result("test query", result)
+    mock_redis.setex.assert_called_once()
+    args = mock_redis.setex.call_args[0]
+    assert args[0].startswith("rag:query:")
+    assert args[1] == 1800
 
 
 @pytest.mark.asyncio
-async def test_get_cached_query_hit(cache_service, mock_redis):
-    """Test retrieving cached query (cache hit)"""
-    query = "test query"
-    results = [{"doc_id": "1", "score": 0.9}]
-    
-    # Mock cache hit
-    mock_redis.get.return_value = json.dumps(results).encode('utf-8')
-    
-    # Retrieve from cache
-    cached = await cache_service.get_cached_query(query)
-    
-    assert cached is not None
-    assert cached == results
-    assert cache_service.cache_hits > 0
+async def test_get_query_result_hit(cache_service, mock_redis):
+    """Test cache hit returns deserialized result."""
+    expected = {"doc_id": "1", "score": 0.9}
+    mock_redis.get.return_value = json.dumps(expected).encode()
+    result = await cache_service.get_query_result("test query")
+    assert result == expected
 
 
 @pytest.mark.asyncio
-async def test_get_cached_query_miss(cache_service, mock_redis):
-    """Test retrieving cached query (cache miss)"""
-    query = "test query"
-    
-    # Mock cache miss
+async def test_get_query_result_miss(cache_service, mock_redis):
+    """Test cache miss returns None."""
     mock_redis.get.return_value = None
-    
-    # Retrieve from cache
-    cached = await cache_service.get_cached_query(query)
-    
-    assert cached is None
-    assert cache_service.cache_misses > 0
+    result = await cache_service.get_query_result("test query")
+    assert result is None
 
 
 @pytest.mark.asyncio
 async def test_cache_embedding(cache_service, mock_redis):
-    """Test caching embedding vectors"""
-    text = "test text"
-    embedding = [0.1] * 1536
-    
-    # Cache embedding
-    await cache_service.cache_embedding(text, embedding)
-    
-    # Verify set was called with correct TTL
-    mock_redis.set.assert_called_once()
-    call_args = mock_redis.set.call_args
-    assert call_args[1]['ex'] == 86400  # 24 hours TTL
+    """Test embedding caching uses numpy serialization and 24h TTL."""
+    embedding = [0.1] * 384
+    await cache_service.cache_embedding("test text", embedding)
+    mock_redis.setex.assert_called_once()
+    args = mock_redis.setex.call_args[0]
+    assert args[0].startswith("rag:embedding:")
+    assert args[1] == 86400
 
 
 @pytest.mark.asyncio
-async def test_get_cached_embedding(cache_service, mock_redis):
-    """Test retrieving cached embeddings"""
-    text = "test text"
-    embedding = [0.1] * 1536
-    
-    # Mock cache hit
-    import numpy as np
-    mock_redis.get.return_value = np.array(embedding).tobytes()
-    
-    # Retrieve from cache
-    cached = await cache_service.get_cached_embedding(text)
-    
-    assert cached is not None
-    assert len(cached) == 1536
+async def test_get_embedding_hit(cache_service, mock_redis):
+    """Test embedding cache hit deserializes numpy bytes."""
+    embedding = [0.1, 0.2, 0.3]
+    mock_redis.get.return_value = np.array(embedding, dtype=np.float32).tobytes()
+    result = await cache_service.get_embedding("test text")
+    assert result is not None
+    assert len(result) == 3
+    assert abs(result[0] - 0.1) < 0.001
 
 
 @pytest.mark.asyncio
-async def test_invalidate_by_document(cache_service, mock_redis):
-    """Test document-based cache invalidation"""
-    doc_id = "doc123"
-    
-    # Mock keys that should be deleted
-    mock_redis.keys.return_value = [
-        b"query:hash1:doc123",
-        b"query:hash2:doc123",
-        b"query:hash3:other"
-    ]
-    
-    # Invalidate by document
-    deleted = await cache_service.invalidate_by_document(doc_id)
-    
-    # Should delete 2 keys containing doc123
-    assert mock_redis.delete.called
-    assert deleted >= 0
+async def test_get_embedding_miss(cache_service, mock_redis):
+    """Test embedding cache miss returns None."""
+    mock_redis.get.return_value = None
+    result = await cache_service.get_embedding("test text")
+    assert result is None
 
 
 @pytest.mark.asyncio
-async def test_invalidate_all(cache_service, mock_redis):
-    """Test invalidating all cached queries"""
-    mock_redis.keys.return_value = [
-        b"query:hash1",
-        b"query:hash2",
-        b"embedding:hash3"
-    ]
-    
-    # Invalidate all queries
-    deleted = await cache_service.invalidate_all_queries()
-    
-    # Should attempt to delete query keys
-    assert mock_redis.keys.called
+async def test_invalidate_document_cache(cache_service, mock_redis):
+    """Test document cache invalidation scans and deletes matching keys."""
+    mock_redis.scan_iter = MagicMock(
+        return_value=AsyncIteratorMock([b"rag:query:abc123", b"rag:query:def456"])
+    )
+    deleted = await cache_service.invalidate_document_cache("doc123")
+    assert deleted == 2
+    assert mock_redis.delete.call_count == 2
 
 
 @pytest.mark.asyncio
-async def test_cache_statistics(cache_service):
-    """Test cache statistics tracking"""
-    # Record some hits and misses
-    cache_service.record_hit("query")
-    cache_service.record_miss("query")
-    cache_service.record_hit("query")
-    cache_service.record_hit("embedding")
-    
-    # Get statistics
-    stats = cache_service.get_statistics()
-    
-    assert stats['total_requests'] == 4
-    assert stats['cache_hits'] == 3
-    assert stats['cache_misses'] == 1
-    assert 0.7 < stats['hit_rate'] < 0.8
+async def test_invalidate_document_cache_no_keys(cache_service, mock_redis):
+    """Test invalidation with no matching keys returns 0."""
+    mock_redis.scan_iter = MagicMock(return_value=AsyncIteratorMock([]))
+    deleted = await cache_service.invalidate_document_cache("doc123")
+    assert deleted == 0
 
 
 @pytest.mark.asyncio
-async def test_health_check_healthy(cache_service, mock_redis):
-    """Test health check when Redis is healthy"""
-    mock_redis.ping.return_value = True
-    
-    healthy = await cache_service.health_check()
-    
-    assert healthy is True
-    mock_redis.ping.assert_called_once()
+async def test_cache_query_with_collection_id(cache_service, mock_redis):
+    """Test that collection_id changes the cache key."""
+    result = {"score": 0.9}
+    await cache_service.cache_query_result("query", result, collection_id="col1")
+    call1_key = mock_redis.setex.call_args[0][0]
+    mock_redis.setex.reset_mock()
+    await cache_service.cache_query_result("query", result, collection_id="col2")
+    call2_key = mock_redis.setex.call_args[0][0]
+    assert call1_key != call2_key
 
 
 @pytest.mark.asyncio
-async def test_health_check_unhealthy(cache_service, mock_redis):
-    """Test health check when Redis is down"""
-    mock_redis.ping.side_effect = Exception("Connection failed")
-    
-    healthy = await cache_service.health_check()
-    
-    assert healthy is False
+async def test_cache_query_custom_ttl(cache_service, mock_redis):
+    """Test custom TTL overrides default."""
+    await cache_service.cache_query_result("query", {"x": 1}, ttl=60)
+    args = mock_redis.setex.call_args[0]
+    assert args[1] == 60
 
 
 @pytest.mark.asyncio
-async def test_cache_key_generation(cache_service):
-    """Test consistent cache key generation"""
-    query1 = "test query"
-    query2 = "test query"
-    query3 = "different query"
-    
-    # Same query should generate same key
-    key1 = cache_service._generate_cache_key(query1)
-    key2 = cache_service._generate_cache_key(query2)
-    key3 = cache_service._generate_cache_key(query3)
-    
-    assert key1 == key2
-    assert key1 != key3
+async def test_hash_text_deterministic(cache_service):
+    """Test that hash_text produces consistent results."""
+    from src.services.cache_service import RedisCacheService
+    h1 = RedisCacheService.hash_text("hello")
+    h2 = RedisCacheService.hash_text("hello")
+    h3 = RedisCacheService.hash_text("world")
+    assert h1 == h2
+    assert h1 != h3
 
 
 @pytest.mark.asyncio
-async def test_ttl_configuration(cache_service):
-    """Test that TTL values are configurable"""
-    assert cache_service.query_ttl == 1800  # 30 minutes
-    assert cache_service.embedding_ttl == 86400  # 24 hours
+async def test_hash_query_with_collection(cache_service):
+    """Test hash_query includes collection_id when provided."""
+    from src.services.cache_service import RedisCacheService
+    h1 = RedisCacheService.hash_query("query")
+    h2 = RedisCacheService.hash_query("query", "col1")
+    assert h1 != h2
 
 
 @pytest.mark.asyncio
-async def test_cache_with_doc_ids(cache_service, mock_redis):
-    """Test caching with document ID tracking"""
-    query = "test query"
-    results = [{"doc_id": "1", "score": 0.9}]
-    doc_ids = ["doc1", "doc2"]
-    
-    # Cache with doc IDs
-    await cache_service.cache_query_result(query, results, doc_ids=doc_ids)
-    
-    # Verify the cache key includes doc IDs
-    mock_redis.set.assert_called_once()
+async def test_cache_query_result_handles_error(cache_service, mock_redis):
+    """Test graceful error handling on cache write failure."""
+    mock_redis.setex.side_effect = Exception("connection refused")
+    result = await cache_service.cache_query_result("query", {"x": 1})
+    assert result is False
 
 
 @pytest.mark.asyncio
-async def test_concurrent_cache_access(cache_service, mock_redis):
-    """Test thread-safe concurrent cache access"""
-    queries = [f"query_{i}" for i in range(10)]
-    
-    # Simulate concurrent cache operations
+async def test_get_query_result_handles_error(cache_service, mock_redis):
+    """Test graceful error handling on cache read failure."""
+    mock_redis.get.side_effect = Exception("connection refused")
+    result = await cache_service.get_query_result("query")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_concurrent_cache_operations(cache_service, mock_redis):
+    """Test concurrent cache operations complete without errors."""
     tasks = [
-        cache_service.get_cached_query(query)
-        for query in queries
+        cache_service.get_query_result(f"query_{i}")
+        for i in range(10)
     ]
-    
     results = await asyncio.gather(*tasks)
-    
-    # All should complete without errors
     assert len(results) == 10
+    assert all(r is None for r in results)
 
 
 @pytest.mark.asyncio
-async def test_cache_serialization(cache_service, mock_redis):
-    """Test proper JSON serialization of complex objects"""
-    complex_result = {
-        "doc_id": "123",
-        "score": 0.95,
-        "metadata": {
-            "title": "Test Doc",
-            "date": "2025-10-11"
-        },
-        "chunks": [
-            {"text": "chunk 1", "position": 0},
-            {"text": "chunk 2", "position": 1}
-        ]
-    }
-    
-    # Should handle complex nested structures
-    await cache_service.cache_query_result("test", [complex_result])
-    
-    # Verify it was serialized
-    mock_redis.set.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_cache_expiration(cache_service, mock_redis):
-    """Test that cache entries expire correctly"""
-    query = "test query"
-    
-    # Mock TTL check
-    mock_redis.ttl.return_value = 0  # Expired
-    
-    ttl = await cache_service.get_ttl(query)
-    
-    assert ttl == 0
-
-
-@pytest.mark.asyncio
-async def test_reset_statistics(cache_service):
-    """Test resetting cache statistics"""
-    # Record some stats
-    cache_service.record_hit("query")
-    cache_service.record_miss("query")
-    
-    # Reset
-    cache_service.reset_statistics()
-    
-    stats = cache_service.get_statistics()
-    assert stats['total_requests'] == 0
-    assert stats['cache_hits'] == 0
-    assert stats['cache_misses'] == 0
-
-
-@pytest.mark.asyncio
-async def test_embedding_vector_serialization(cache_service, mock_redis):
-    """Test numpy array serialization for embeddings"""
-    import numpy as np
-    
-    embedding = [0.1, 0.2, 0.3] * 512  # 1536 dimensions
-    
-    # Cache embedding
-    await cache_service.cache_embedding("text", embedding)
-    
-    # Should have called set with serialized numpy array
-    mock_redis.set.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_batch_invalidation(cache_service, mock_redis):
-    """Test batch invalidation of multiple documents"""
-    doc_ids = ["doc1", "doc2", "doc3"]
-    
-    mock_redis.keys.return_value = [
-        b"query:hash1:doc1",
-        b"query:hash2:doc2"
-    ]
-    
-    # Invalidate multiple documents
-    for doc_id in doc_ids:
-        await cache_service.invalidate_by_document(doc_id)
-    
-    # Should have called keys multiple times
-    assert mock_redis.keys.call_count >= len(doc_ids)
+async def test_calculate_hit_rate():
+    """Test hit rate calculation."""
+    from src.services.cache_service import RedisCacheService
+    assert RedisCacheService._calculate_hit_rate(0, 0) == 0.0
+    assert RedisCacheService._calculate_hit_rate(10, 0) == 100.0
+    assert RedisCacheService._calculate_hit_rate(1, 1) == 50.0
+    assert abs(RedisCacheService._calculate_hit_rate(2, 1) - 66.666) < 1

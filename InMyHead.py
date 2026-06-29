@@ -58,13 +58,16 @@ class ServiceManager(QThread):
     def __init__(self, project_root: Path):
         super().__init__()
         self.project_root = project_root
-        self.docker_compose_path = project_root / "infrastructure" / "docker"
+        # v0.1.0: single root infrastructure compose (Postgres/Redis/Qdrant/MinIO)
+        self.docker_compose_path = project_root
+        self.compose_file = "docker-compose.infrastructure.yml"
         self.running = True
         self.services = [
             ("postgres", "http://localhost:5432", "Database"),
             ("redis", "http://localhost:6379", "Cache"),
             ("qdrant", "http://localhost:6333", "Vector DB"),
-            ("document-processor", "http://localhost:8001/health", "API"),
+            # ai-engine is the core API (port 8001); document-processor is 8002
+            ("ai-engine", "http://localhost:8001/health", "API"),
         ]
 
     def run(self):
@@ -103,7 +106,7 @@ class ServiceManager(QThread):
 
             cmd = [
                 "docker-compose",
-                "-f", "docker-compose.dev.yml",
+                "-f", self.compose_file,
                 "up", "-d"
             ]
 
@@ -215,7 +218,7 @@ class ServiceManager(QThread):
             self.log_message.emit("\n🛑 Shutting down services...")
 
             subprocess.run(
-                ["docker-compose", "-f", "docker-compose.dev.yml", "down"],
+                ["docker-compose", "-f", self.compose_file, "down"],
                 cwd=str(self.docker_compose_path),
                 timeout=30
             )
@@ -1273,8 +1276,8 @@ class InMyHeadApp(QMainWindow):
         )
 
     def open_web_interface(self):
-        """Open web interface in browser"""
-        webbrowser.open("http://localhost:8001/docs")
+        """Open the web app in the browser (Vite dev server on :3001)."""
+        webbrowser.open("http://localhost:3001")
 
     def toggle_logs(self):
         """Toggle log console visibility"""

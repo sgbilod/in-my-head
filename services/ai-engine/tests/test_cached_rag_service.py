@@ -2,10 +2,13 @@
 Tests for Cached RAG Service
 
 Comprehensive test coverage for cached_rag_service.py
+Requires sentence-transformers + torch (ML marker).
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
+
+pytestmark = pytest.mark.ml
 
 
 @pytest.fixture

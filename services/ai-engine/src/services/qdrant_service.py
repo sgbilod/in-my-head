@@ -173,10 +173,10 @@ class QdrantService:
             if filters:
                 query_filter = self._build_filter(filters)
 
-            # Execute search
-            results = self.client.search(
+            # Execute search (query_points is the current API; search() was removed in 1.12+)
+            response = self.client.query_points(
                 collection_name=collection_name,
-                query_vector=query_vector,
+                query=query_vector,
                 limit=limit,
                 score_threshold=score_threshold,
                 query_filter=query_filter
@@ -189,13 +189,22 @@ class QdrantService:
                     "score": result.score,
                     "payload": result.payload
                 }
-                for result in results
+                for result in response.points
             ]
 
             logger.info(f"Found {len(formatted_results)} similar vectors in '{collection_name}'")
             return formatted_results
 
         except Exception as e:
+            # A missing collection (fresh install, no documents yet) is not a
+            # hard error — return no results so callers can degrade gracefully.
+            msg = str(e).lower()
+            if "doesn't exist" in msg or "not found" in msg or "404" in msg:
+                logger.warning(
+                    f"Collection '{collection_name}' does not exist yet — "
+                    f"returning no results"
+                )
+                return []
             logger.error(f"Failed to search vectors: {e}")
             raise
 

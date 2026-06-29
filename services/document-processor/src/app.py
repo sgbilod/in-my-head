@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
-from .api import routes_documents, routes_search, routes_websocket, routes_health
+from .api import routes_health, routes_ingest
 
 
 # Lifespan context manager for startup/shutdown
@@ -29,21 +29,17 @@ async def lifespan(app: FastAPI):
     - Shutdown cleanup
     """
     # Startup
-    print("🚀 Starting Document Processing API...")
+    print("Starting Document Parsing service...")
 
     # Create upload directory
     os.makedirs("uploads", exist_ok=True)
 
-    # Initialize services
-    # (Already initialized in route modules)
-
-    print("✅ Document Processing API started successfully")
+    print("Document Parsing service started (parse -> forward to ai-engine)")
 
     yield
 
-    # Shutdown
-    print("🛑 Shutting down Document Processing API...")
-    print("✅ Shutdown complete")
+    print("Shutting down Document Processing API...")
+    print("Shutdown complete")
 
 
 # Create FastAPI application
@@ -113,10 +109,12 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Include routers
+# Architecture: this service PARSES documents (PDF/DOCX/PPTX/HTML/MD/TXT) and
+# forwards extracted text to the ai-engine for chunking, local embedding, and
+# storage. The legacy Celery upload/search/websocket routers (OpenAI embeddings,
+# 3072-dim "documents" collection) are deprecated and no longer mounted.
 app.include_router(routes_health.router)
-app.include_router(routes_documents.router)
-app.include_router(routes_search.router)
-app.include_router(routes_websocket.router)
+app.include_router(routes_ingest.router)
 
 
 # Global exception handler

@@ -1,7 +1,8 @@
 """
 Embedding generation service for document chunks.
 
-Generates embeddings using sentence-transformers (if available) or OpenAI API.
+Generates embeddings locally using sentence-transformers (local-first; no
+external embedding APIs per the project's no-OpenAI values rule).
 """
 
 import asyncio
@@ -11,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import uuid as uuid_pkg
 
-# Optional: sentence-transformers for local embeddings
+# Local embeddings via sentence-transformers (required — no API fallback)
 try:
     from sentence_transformers import SentenceTransformer
     SENTENCE_TRANSFORMERS_AVAILABLE = True
@@ -19,8 +20,8 @@ except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
     SentenceTransformer = None
     logging.warning(
-        "sentence-transformers not available. Using OpenAI embeddings API. "
-        "Install with: pip install sentence-transformers"
+        "sentence-transformers not available. Local embeddings will be "
+        "unavailable. Install with: pip install sentence-transformers"
     )
 
 import asyncpg
@@ -58,49 +59,31 @@ class EmbeddingService:
         model_name: str = "all-MiniLM-L6-v2",
         qdrant_url: str = "http://localhost:6333",
         db_url: str = None,
-        batch_size: int = 32,
-        use_openai: bool = False,
-        openai_model: str = "text-embedding-3-small"
+        batch_size: int = 32
     ):
         """
-        Initialize embedding service.
+        Initialize embedding service (local-first, sentence-transformers only).
 
         Args:
-            model_name: Sentence-transformers model name (if available)
+            model_name: Sentence-transformers model name
             qdrant_url: Qdrant service URL
             db_url: PostgreSQL connection URL
             batch_size: Batch size for processing
-            use_openai: Force OpenAI API (even if sentence-transformers available)
-            openai_model: OpenAI embedding model name
         """
 
         self.model_name = model_name
         self.qdrant_url = qdrant_url
         self.batch_size = batch_size
-        self.openai_model = openai_model
 
-        # Determine which embedding provider to use
-        if use_openai or not SENTENCE_TRANSFORMERS_AVAILABLE:
-            logger.info("Using OpenAI embeddings API")
-            self.model = None
-            self.use_openai = True
-            self.embedding_dim = 1536  # text-embedding-3-small dimension
+        if not SENTENCE_TRANSFORMERS_AVAILABLE:
+            raise RuntimeError(
+                "sentence-transformers is required for local embeddings. "
+                "Install with: pip install sentence-transformers"
+            )
 
-            # Import OpenAI client only if needed
-            try:
-                from openai import OpenAI
-                import os
-                self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            except ImportError:
-                raise ImportError(
-                    "OpenAI client not installed. Install with: pip install openai"
-                )
-        else:
-            logger.info(f"Loading local embedding model: {model_name}")
-            self.model = SentenceTransformer(model_name)
-            self.use_openai = False
-            self.embedding_dim = self.model.get_sentence_embedding_dimension()
-            self.openai_client = None
+        logger.info(f"Loading local embedding model: {model_name}")
+        self.model = SentenceTransformer(model_name)
+        self.embedding_dim = self.model.get_sentence_embedding_dimension()
 
         self.qdrant = QdrantClient(url=qdrant_url)
         self.db_url = db_url or (
@@ -109,10 +92,8 @@ class EmbeddingService:
         )
 
         logger.info(
-            f"EmbeddingService initialized: "
-            f"provider={'OpenAI' if self.use_openai else 'Local'}, "
-            f"model={openai_model if self.use_openai else model_name}, "
-            f"dim={self.embedding_dim}"
+            f"EmbeddingService initialized: provider=Local, "
+            f"model={model_name}, dim={self.embedding_dim}"
         )
 
     async def ensure_collection(
@@ -158,17 +139,9 @@ class EmbeddingService:
             Embedding vector
         """
 
-        if self.use_openai:
-            # Use OpenAI embeddings API
-            response = self.openai_client.embeddings.create(
-                model=self.openai_model,
-                input=text
-            )
-            return response.data[0].embedding
-        else:
-            # Use local sentence-transformers
-            embedding = self.model.encode(text, convert_to_numpy=True)
-            return embedding.tolist()
+        # Local sentence-transformers
+        embedding = self.model.encode(text, convert_to_numpy=True)
+        return embedding.tolist()
 
     def generate_embeddings_batch(
         self,
@@ -184,22 +157,14 @@ class EmbeddingService:
             List of embedding vectors
         """
 
-        if self.use_openai:
-            # Use OpenAI embeddings API (supports batching)
-            response = self.openai_client.embeddings.create(
-                model=self.openai_model,
-                input=texts
-            )
-            return [item.embedding for item in response.data]
-        else:
-            # Use local sentence-transformers
-            embeddings = self.model.encode(
-                texts,
-                batch_size=self.batch_size,
-                show_progress_bar=False,
-                convert_to_numpy=True
-            )
-            return [emb.tolist() for emb in embeddings]
+        # Local sentence-transformers (supports batching)
+        embeddings = self.model.encode(
+            texts,
+            batch_size=self.batch_size,
+            show_progress_bar=False,
+            convert_to_numpy=True
+        )
+        return [emb.tolist() for emb in embeddings]
 
     async def store_embeddings(
         self,

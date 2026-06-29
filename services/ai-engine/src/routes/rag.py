@@ -9,7 +9,7 @@ FastAPI endpoints for Retrieval-Augmented Generation:
 
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 import logging
 
 from src.services.rag_service import get_rag_service, RAGService
@@ -43,15 +43,14 @@ class RetrieveRequest(BaseModel):
         description="Optional Qdrant filters"
     )
     
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "query": "What is machine learning?",
-                "top_k": 5,
-                "use_reranking": True,
-                "collection_name": "chunk_embeddings"
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "query": "What is machine learning?",
+            "top_k": 5,
+            "use_reranking": True,
+            "collection_name": "chunk_embeddings"
         }
+    })
 
 
 class ChunkResult(BaseModel):
@@ -83,35 +82,34 @@ class RetrieveResponse(BaseModel):
     total_tokens: int
     strategy: str
     
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "query": "What is machine learning?",
-                "context_text": "Machine learning is a subset of AI...",
-                "chunks": [
-                    {
-                        "chunk_id": "chunk-123",
-                        "document_id": "doc-456",
-                        "content": "Machine learning enables...",
-                        "score": 0.95,
-                        "chunk_index": 0,
-                        "metadata": {}
-                    }
-                ],
-                "citations": [
-                    {
-                        "document_id": "doc-456",
-                        "document_title": "AI Basics",
-                        "chunk_id": "chunk-123",
-                        "chunk_index": 0,
-                        "relevance_score": 0.95,
-                        "excerpt": "Machine learning enables..."
-                    }
-                ],
-                "total_tokens": 342,
-                "strategy": "hybrid_rerank"
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "query": "What is machine learning?",
+            "context_text": "Machine learning is a subset of AI...",
+            "chunks": [
+                {
+                    "chunk_id": "chunk-123",
+                    "document_id": "doc-456",
+                    "content": "Machine learning enables...",
+                    "score": 0.95,
+                    "chunk_index": 0,
+                    "metadata": {}
+                }
+            ],
+            "citations": [
+                {
+                    "document_id": "doc-456",
+                    "document_title": "AI Basics",
+                    "chunk_id": "chunk-123",
+                    "chunk_index": 0,
+                    "relevance_score": 0.95,
+                    "excerpt": "Machine learning enables..."
+                }
+            ],
+            "total_tokens": 342,
+            "strategy": "hybrid_rerank"
         }
+    })
 
 
 class RAGQueryRequest(BaseModel):
@@ -121,23 +119,22 @@ class RAGQueryRequest(BaseModel):
     use_reranking: bool = Field(default=True)
     collection_name: str = Field(default="chunk_embeddings")
     model: str = Field(
-        default="claude-sonnet-4",
-        description="LLM model to use"
+        default="llama3",
+        description="LLM model to use (default: local Ollama)"
     )
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=500, ge=50, le=4000)
     
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "query": "What are the benefits of machine learning?",
-                "top_k": 5,
-                "use_reranking": True,
-                "model": "claude-sonnet-4",
-                "temperature": 0.7,
-                "max_tokens": 500
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "query": "What are the benefits of machine learning?",
+            "top_k": 5,
+            "use_reranking": True,
+            "model": "llama3",
+            "temperature": 0.7,
+            "max_tokens": 500
         }
+    })
 
 
 class RAGQueryResponse(BaseModel):
@@ -149,26 +146,25 @@ class RAGQueryResponse(BaseModel):
     model: str
     tokens_used: int
     
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "query": "What are the benefits of machine learning?",
-                "answer": "Machine learning offers several key benefits...",
-                "citations": [
-                    {
-                        "document_id": "doc-456",
-                        "document_title": "AI Basics",
-                        "chunk_id": "chunk-123",
-                        "chunk_index": 0,
-                        "relevance_score": 0.95,
-                        "excerpt": "Machine learning enables..."
-                    }
-                ],
-                "context_used": "Machine learning is...",
-                "model": "claude-sonnet-4",
-                "tokens_used": 450
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "query": "What are the benefits of machine learning?",
+            "answer": "Machine learning offers several key benefits...",
+            "citations": [
+                {
+                    "document_id": "doc-456",
+                    "document_title": "AI Basics",
+                    "chunk_id": "chunk-123",
+                    "chunk_index": 0,
+                    "relevance_score": 0.95,
+                    "excerpt": "Machine learning enables..."
+                }
+            ],
+            "context_used": "Machine learning is...",
+            "model": "llama3",
+            "tokens_used": 450
         }
+    })
 
 
 # ==================== API Endpoints ====================
@@ -282,8 +278,9 @@ async def rag_query(
         
         llm = get_llm_service(
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
-            openai_api_key=os.getenv("OPENAI_API_KEY"),
-            google_api_key=os.getenv("GOOGLE_API_KEY")
+            google_api_key=os.getenv("GOOGLE_API_KEY"),
+            ollama_url=os.getenv("OLLAMA_HOST"),
+            ollama_model=os.getenv("OLLAMA_MODEL"),
         )
         
         try:
@@ -395,7 +392,6 @@ async def rag_query_stream(
             # Initialize LLM
             llm = get_llm_service(
                 anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
-                openai_api_key=os.getenv("OPENAI_API_KEY"),
                 google_api_key=os.getenv("GOOGLE_API_KEY")
             )
             

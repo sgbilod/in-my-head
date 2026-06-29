@@ -144,8 +144,14 @@ class ChunkerService:
         Returns:
             List of DocumentChunk objects
         """
-        chunk_size = chunk_size or self.default_chunk_size
-        chunk_overlap = chunk_overlap or self.default_chunk_overlap
+        chunk_size = chunk_size if chunk_size is not None else self.default_chunk_size
+        chunk_overlap = chunk_overlap if chunk_overlap is not None else self.default_chunk_overlap
+
+        if chunk_size <= 0:
+            raise ValueError(f"chunk_size must be positive, got {chunk_size}")
+
+        if not isinstance(strategy, ChunkingStrategy):
+            raise TypeError(f"strategy must be a ChunkingStrategy enum, got {type(strategy).__name__}")
 
         logger.info(
             f"Chunking document {document_id} with strategy={strategy.value}, "

@@ -14,8 +14,10 @@ from src.config import settings
 
 @pytest.fixture
 def qdrant_service():
-    """Fixture for QdrantService instance."""
-    return QdrantService()
+    """Fixture for QdrantService instance with mocked client."""
+    service = QdrantService()
+    service.client = MagicMock()
+    return service
 
 
 @pytest.fixture
@@ -71,13 +73,15 @@ class TestQdrantService:
         """Test similarity search."""
         query_vector = [0.5] * 384
 
-        # Mock search results
+        # Mock search results (query_points returns a response with .points)
         mock_result = Mock()
         mock_result.id = "doc-1"
         mock_result.score = 0.95
         mock_result.payload = {"title": "Test Doc"}
 
-        qdrant_service.client.search = Mock(return_value=[mock_result])
+        mock_response = Mock()
+        mock_response.points = [mock_result]
+        qdrant_service.client.query_points = Mock(return_value=mock_response)
 
         # Execute search
         results = await qdrant_service.search_similar(

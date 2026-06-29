@@ -12,7 +12,7 @@ Endpoints:
 
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from uuid import UUID
 import logging
 
@@ -33,13 +33,12 @@ class CreateConversationRequest(BaseModel):
     user_id: UUID = Field(..., description="User ID")
     title: str = Field(..., description="Conversation title", min_length=1)
     
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "user_id": "123e4567-e89b-12d3-a456-426614174000",
-                "title": "Machine Learning Q&A"
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "user_id": "123e4567-e89b-12d3-a456-426614174000",
+            "title": "Machine Learning Q&A"
         }
+    })
 
 
 class ConversationResponse(BaseModel):
@@ -56,8 +55,8 @@ class SendMessageRequest(BaseModel):
     """Request to send a message in a conversation."""
     content: str = Field(..., description="Message content", min_length=1)
     model: str = Field(
-        default="claude-sonnet-4",
-        description="LLM model to use"
+        default="llama3",
+        description="LLM model to use (default: local Ollama)"
     )
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     use_rag: bool = Field(
@@ -70,17 +69,16 @@ class SendMessageRequest(BaseModel):
         description="Optional collection ID to filter documents"
     )
     
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "content": "What is machine learning?",
-                "model": "claude-sonnet-4",
-                "temperature": 0.7,
-                "use_rag": True,
-                "top_k": 5,
-                "collection_id": None
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "content": "What is machine learning?",
+            "model": "claude-sonnet-4",
+            "temperature": 0.7,
+            "use_rag": True,
+            "top_k": 5,
+            "collection_id": None
         }
+    })
 
 
 class CitationInfo(BaseModel):

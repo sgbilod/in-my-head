@@ -1,13 +1,20 @@
 """
 Celery tasks for document processing pipeline.
 
-This module defines all background tasks for:
-- Complete document processing (orchestration)
-- Document parsing
-- Text preprocessing
-- Embedding generation
-- Metadata extraction
-- Vector storage
+⚠️ DEPRECATED — NOT MOUNTED IN THE RUNNING SERVICE.
+
+This Celery pipeline used OpenAI `text-embedding-3-large` (3072-dim) writing to a
+"documents" collection, which (a) violates the project's No-OpenAI rule, (b) was
+dimension-incompatible with the 384-dim sentence-transformers collections, and
+(c) stored to a collection the RAG layer never reads. It also referenced parser
+APIs that no longer exist (`ParserFactory.create_parser`, `result.content`).
+
+The canonical ingestion path is now:
+    document-processor  src/api/routes_ingest.py  (parse only)
+        -> POST ai-engine /documents/ingest  (chunk + local embed + store)
+
+This module is retained for reference/history only. Do not re-enable without
+replacing the OpenAI embedding + vector-storage steps with the local-first path.
 """
 
 import os

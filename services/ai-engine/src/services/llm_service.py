@@ -2,8 +2,8 @@
 LLM integration for RAG query endpoint.
 
 Supports multiple LLM providers:
+- Ollama (local, default)
 - Claude (Anthropic)
-- GPT (OpenAI)
 - Gemini (Google)
 """
 
@@ -12,8 +12,8 @@ import logging
 from typing import Optional, AsyncIterator, Dict, Any
 from dataclasses import dataclass
 
+import httpx
 import anthropic
-import openai
 from google import generativeai as genai
 
 from src.services.rag_service import RAGContext
@@ -35,7 +35,7 @@ class LLMService:
     Service for LLM inference with multiple providers.
     
     Features:
-    - Multiple LLM providers (Claude, GPT, Gemini)
+    - Multiple LLM providers (local Ollama, Claude, Gemini)
     - Streaming support
     - Token counting
     - Error handling with fallbacks
@@ -44,32 +44,38 @@ class LLMService:
     def __init__(
         self,
         anthropic_api_key: Optional[str] = None,
-        openai_api_key: Optional[str] = None,
-        google_api_key: Optional[str] = None
+        google_api_key: Optional[str] = None,
+        ollama_url: Optional[str] = None,
+        ollama_model: Optional[str] = None
     ):
-        """Initialize LLM service."""
-        
+        """Initialize LLM service (local-first; no OpenAI per values rule)."""
+
         self.anthropic_client = None
-        self.openai_client = None
         self.genai_model = None
-        
-        # Initialize clients based on available API keys
+        self.ollama_url = ollama_url or "http://localhost:11434"
+        self.ollama_model = ollama_model or "llama3"
+        self.ollama_available = False
+
+        # Ollama (local-first, always try)
+        try:
+            resp = httpx.get(f"{self.ollama_url}/api/tags", timeout=3.0)
+            if resp.status_code == 200:
+                models = [m["name"] for m in resp.json().get("models", [])]
+                self.ollama_available = True
+                logger.info(f"Ollama connected: {', '.join(models)}")
+        except Exception:
+            logger.warning("Ollama not available at %s", self.ollama_url)
+
         if anthropic_api_key:
             self.anthropic_client = anthropic.AsyncAnthropic(
                 api_key=anthropic_api_key
             )
-            logger.info("✅ Anthropic client initialized")
-        
-        if openai_api_key:
-            self.openai_client = openai.AsyncOpenAI(
-                api_key=openai_api_key
-            )
-            logger.info("✅ OpenAI client initialized")
-        
+            logger.info("Anthropic client initialized")
+
         if google_api_key:
             genai.configure(api_key=google_api_key)
             self.genai_model = genai.GenerativeModel('gemini-pro')
-            logger.info("✅ Google Generative AI initialized")
+            logger.info("Google Generative AI initialized")
     
     def build_prompt(
         self,
@@ -110,6 +116,49 @@ SOURCES:
         
         return prompt
     
+    async def generate_ollama(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 1000
+    ) -> LLMResponse:
+        """Generate response using local Ollama."""
+
+        if not self.ollama_available:
+            raise ValueError("Ollama is not available")
+
+        model = model or self.ollama_model
+        logger.info(f"Generating with Ollama: {model}")
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                f"{self.ollama_url}/api/generate",
+                json={
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": temperature,
+                        "num_predict": max_tokens,
+                    },
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        answer = data.get("response", "")
+        tokens_used = data.get("eval_count", 0) + data.get("prompt_eval_count", 0)
+
+        logger.info(f"  Ollama response: {len(answer)} chars, {tokens_used} tokens")
+
+        return LLMResponse(
+            answer=answer,
+            model=model,
+            tokens_used=tokens_used,
+            finish_reason="stop" if data.get("done") else "length",
+        )
+
     async def generate_claude(
         self,
         prompt: str,
@@ -155,53 +204,6 @@ SOURCES:
             model=model,
             tokens_used=tokens_used,
             finish_reason=message.stop_reason
-        )
-    
-    async def generate_gpt(
-        self,
-        prompt: str,
-        model: str = "gpt-4-turbo-preview",
-        temperature: float = 0.7,
-        max_tokens: int = 1000
-    ) -> LLMResponse:
-        """
-        Generate response using GPT.
-        
-        Args:
-            prompt: Full prompt with context
-            model: GPT model name
-            temperature: Sampling temperature
-            max_tokens: Maximum response tokens
-            
-        Returns:
-            LLM response
-        """
-        
-        if not self.openai_client:
-            raise ValueError("OpenAI API key not configured")
-        
-        logger.info(f"Generating with GPT: {model}")
-        
-        response = await self.openai_client.chat.completions.create(
-            model=model,
-            messages=[{
-                "role": "user",
-                "content": prompt
-            }],
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-        
-        answer = response.choices[0].message.content
-        tokens_used = response.usage.total_tokens
-        
-        logger.info(f"  Response: {len(answer)} chars, {tokens_used} tokens")
-        
-        return LLMResponse(
-            answer=answer,
-            model=model,
-            tokens_used=tokens_used,
-            finish_reason=response.choices[0].finish_reason
         )
     
     async def generate_gemini(
@@ -271,39 +273,29 @@ SOURCES:
         """
         
         prompt = self.build_prompt(query, context)
-        
+
         # Route to appropriate provider
-        if "claude" in model.lower():
-            return await self.generate_claude(
-                prompt,
-                model,
-                temperature,
-                max_tokens
-            )
-        elif "gpt" in model.lower() or "openai" in model.lower():
-            return await self.generate_gpt(
-                prompt,
-                model,
-                temperature,
-                max_tokens
-            )
+        if "ollama" in model.lower() or model in ("llama3", "llama3.1", "qwen3", "gemma4"):
+            return await self.generate_ollama(prompt, model, temperature, max_tokens)
+        elif "claude" in model.lower():
+            return await self.generate_claude(prompt, model, temperature, max_tokens)
         elif "gemini" in model.lower():
-            return await self.generate_gemini(
-                prompt,
-                temperature,
-                max_tokens
-            )
+            return await self.generate_gemini(prompt, temperature, max_tokens)
         else:
-            # Default to Claude
-            logger.warning(
-                f"Unknown model '{model}', defaulting to Claude"
-            )
-            return await self.generate_claude(
-                prompt,
-                "claude-sonnet-4-20250514",
-                temperature,
-                max_tokens
-            )
+            # Default chain: local Ollama -> Gemini (fallback) -> Claude
+            if self.ollama_available:
+                logger.info(f"Defaulting to Ollama ({self.ollama_model})")
+                return await self.generate_ollama(prompt, None, temperature, max_tokens)
+            elif self.genai_model:
+                logger.info("Ollama unavailable, falling back to Gemini")
+                return await self.generate_gemini(prompt, temperature, max_tokens)
+            elif self.anthropic_client:
+                logger.info("Ollama/Gemini unavailable, falling back to Claude")
+                return await self.generate_claude(
+                    prompt, "claude-sonnet-4-20250514", temperature, max_tokens
+                )
+            else:
+                raise ValueError("No LLM provider available (Ollama down, no API keys)")
     
     async def generate_stream(
         self,
@@ -328,8 +320,33 @@ SOURCES:
         """
         
         prompt = self.build_prompt(query, context)
-        
-        if "claude" in model.lower() and self.anthropic_client:
+
+        use_ollama = (
+            "ollama" in model.lower()
+            or model in ("llama3", "llama3.1", "qwen3", "gemma4")
+            or (self.ollama_available and "claude" not in model.lower())
+        )
+
+        if use_ollama and self.ollama_available:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.ollama_url}/api/generate",
+                    json={
+                        "model": model if model not in ("claude-sonnet-4",) else self.ollama_model,
+                        "prompt": prompt,
+                        "stream": True,
+                        "options": {"temperature": temperature, "num_predict": max_tokens},
+                    },
+                ) as resp:
+                    import json as _json
+                    async for line in resp.aiter_lines():
+                        if line:
+                            chunk = _json.loads(line)
+                            if chunk.get("response"):
+                                yield chunk["response"]
+
+        elif "claude" in model.lower() and self.anthropic_client:
             # Stream from Claude
             async with self.anthropic_client.messages.stream(
                 model=model,
@@ -342,24 +359,7 @@ SOURCES:
             ) as stream:
                 async for text in stream.text_stream:
                     yield text
-        
-        elif "gpt" in model.lower() and self.openai_client:
-            # Stream from GPT
-            stream = await self.openai_client.chat.completions.create(
-                model=model,
-                messages=[{
-                    "role": "user",
-                    "content": prompt
-                }],
-                temperature=temperature,
-                max_tokens=max_tokens,
-                stream=True
-            )
-            
-            async for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
-        
+
         else:
             # Fallback: non-streaming
             response = await self.generate(
@@ -378,17 +378,20 @@ _llm_service: Optional[LLMService] = None
 
 def get_llm_service(
     anthropic_api_key: Optional[str] = None,
-    openai_api_key: Optional[str] = None,
-    google_api_key: Optional[str] = None
+    google_api_key: Optional[str] = None,
+    ollama_url: Optional[str] = None,
+    ollama_model: Optional[str] = None
 ) -> LLMService:
-    """Get singleton LLM service."""
+    """Get singleton LLM service (local-first; no OpenAI per values rule)."""
     global _llm_service
-    
+
     if _llm_service is None:
+        import os
         _llm_service = LLMService(
             anthropic_api_key=anthropic_api_key,
-            openai_api_key=openai_api_key,
-            google_api_key=google_api_key
+            google_api_key=google_api_key,
+            ollama_url=ollama_url or os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+            ollama_model=ollama_model or os.getenv("OLLAMA_MODEL", "llama3"),
         )
-    
+
     return _llm_service

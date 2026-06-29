@@ -52,17 +52,17 @@ RUN useradd -m -u 1001 docprocessor && \
 
 USER docprocessor
 
-# Expose port
-EXPOSE 8001
+# Expose port (8002 — ai-engine owns 8001)
+EXPOSE 8002
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8001/health || exit 1
+    CMD curl -f http://localhost:8002/health || exit 1
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=8001
+    PORT=8002
 
-# Run application
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8001"]
+# Run application (src.app = parse-and-forward service; src.main is legacy)
+CMD ["uvicorn", "src.app:app", "--host", "0.0.0.0", "--port", "8002"]

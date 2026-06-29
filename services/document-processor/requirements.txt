@@ -32,8 +32,7 @@ nltk==3.8.1
 langdetect==1.0.9
 tiktoken==0.5.2
 
-# Embeddings
-openai==1.3.7
+# Embeddings (local-first; embedding is delegated to ai-engine, no OpenAI)
 sentence-transformers==2.2.2
 
 # Vector storage
@@ -56,6 +55,8 @@ pydantic[email]==2.5.3
 pydantic-settings==2.1.0
 email-validator==2.1.0
 aiofiles==23.2.1
+httpx==0.25.2          # parse-and-forward to ai-engine (routes_ingest)
+chardet==5.2.0         # text encoding detection (txt_parser)
 
 # Monitoring
 prometheus-client==0.19.0
