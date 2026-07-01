@@ -114,7 +114,7 @@ _Tiered by leverage. All chosen to run **fully local** (privacy is the moat). Ef
 ### ⚡ TIER 1 — Quick Wins (high leverage on existing stack)
 | # | Innovation | Why | Effort |
 |---|---|---|---|
-| 1 | **Semantic answer cache over Qdrant** (GPTCache-style, key on query-embedding + retrieved-doc-id hash) | Turns repeat 30-120s RAG queries into **~50ms**; you already run Qdrant | S–M |
+| 1 | ✅ **Semantic answer cache over Qdrant** — SHIPPED 2026-07-01 (branch `feat/semantic-answer-cache`). `src/services/semantic_cache.py` + wired into `/rag/query`; corpus-size invalidation, TTL, per-model, fail-open. **Verified: 74s → ~2s on repeat (~35×); paraphrase hits at 0.98 similarity.** 8 unit tests. | S–M |
 | 2 | **Streaming-first UX** (SSE token stream + show citations during TTFT) | Makes the app *feel* instant regardless of total latency | S |
 | 3 | **Right-size the generator** → Qwen3 8–14B Q5/Q6 default, 70B on-demand | **4–8x faster**, ~same grounded-answer quality; Qwen also enables KV-cache reuse (Gemma doesn't) | S |
 | 4 | **Contextual Retrieval** (Anthropic method, run with local Ollama) | **−35% to −67% retrieval failures**; slots into your existing chunk+BM25+rerank pipeline | S–M |

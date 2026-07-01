@@ -145,7 +145,9 @@ class RAGQueryResponse(BaseModel):
     context_used: str
     model: str
     tokens_used: int
-    
+    cached: bool = False
+    cache_similarity: Optional[float] = None
+
     model_config = ConfigDict(json_schema_extra={
         "example": {
             "query": "What are the benefits of machine learning?",
@@ -263,7 +265,24 @@ async def rag_query(
     """
     try:
         logger.info(f"RAG query: {request.query[:100]}")
-        
+
+        # Semantic answer cache: a near-identical prior query returns instantly
+        # (skips retrieval + LLM generation). Degrades gracefully on any error.
+        from src.services.semantic_cache import get_semantic_cache
+        cache = get_semantic_cache()
+        hit = await cache.lookup(request.query, request.model)
+        if hit is not None:
+            return RAGQueryResponse(
+                query=request.query,
+                answer=hit["answer"],
+                citations=[CitationResponse(**c) for c in hit["citations"]],
+                context_used="(served from semantic cache)",
+                model=hit["model"],
+                tokens_used=hit["tokens_used"],
+                cached=True,
+                cache_similarity=hit["similarity"],
+            )
+
         # Retrieve context
         context = await rag.retrieve(
             query=request.query,
@@ -322,11 +341,21 @@ async def rag_query(
             ],
             context_used=context.context_text[:500] + "...",
             model=request.model,
-            tokens_used=tokens_used
+            tokens_used=tokens_used,
+            cached=False,
         )
-        
+
         logger.info(f"Generated answer with {len(response.citations)} citations")
-        
+
+        # Store in the semantic cache for future near-identical queries.
+        await cache.store(
+            query=request.query,
+            model=request.model,
+            answer=answer,
+            citations=[c.model_dump() for c in response.citations],
+            tokens_used=tokens_used,
+        )
+
         return response
         
     except Exception as e:
