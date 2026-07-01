@@ -64,6 +64,12 @@ export interface DocumentSummary {
   chunk_count: number;
 }
 
+export interface RelatedDocument {
+  document_id: string;
+  title: string;
+  score: number;
+}
+
 export interface IngestResponse {
   document_id: string;
   title: string;
@@ -103,6 +109,13 @@ export const api = {
 
   listDocuments: async (): Promise<DocumentSummary[]> => {
     const res = await apiClient.get('/documents');
+    return res.data;
+  },
+
+  getRelated: async (documentId: string, limit = 4): Promise<RelatedDocument[]> => {
+    const res = await apiClient.get(`/documents/${documentId}/related`, {
+      params: { limit },
+    });
     return res.data;
   },
 

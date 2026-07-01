@@ -119,7 +119,7 @@ _Tiered by leverage. All chosen to run **fully local** (privacy is the moat). Ef
 | 3 | **Right-size the generator** → Qwen3 8–14B Q5/Q6 default, 70B on-demand | **4–8x faster**, ~same grounded-answer quality; Qwen also enables KV-cache reuse (Gemma doesn't) | S |
 | 4 | **Contextual Retrieval** (Anthropic method, run with local Ollama) | **−35% to −67% retrieval failures**; slots into your existing chunk+BM25+rerank pipeline | S–M |
 | 5 | **Parent-document retrieval** (embed child chunks, return parent section) | Near-free precision win via a `parent_id` Qdrant payload | S |
-| 6 | **"Related Notes" + AI-suggested links** (existing embeddings + 1 Ollama call for rationale) | The Obsidian-graph feel, AI-generated; near-zero marginal cost | S |
+| 6 | ✅ **"Related Documents"** — SHIPPED 2026-07-01 (branch `feat/related-documents`). `GET /documents/{id}/related` (centroid of a doc's chunk vectors → nearest chunks across corpus → aggregate by doc, exclude self; pure vector similarity, no LLM); frontend sparkle toggle on each Documents row shows related docs + % match. Verified in-browser (volcanoes.pdf → Black Holes 19%, Photosynthesis 16%). Fast — sidesteps the CPU-inference latency wall. _Future: add the 1-Ollama-call "why related" rationale._ | S |
 | 7 | **Retrieval metrics + RAGAS gold set** (Hit@k/MRR, local Ollama judge) | Measurement *first* so every change below is provable; CI regression gate | S–M |
 | 8 | **Official Qdrant MCP server** (local path) | Expose your brain as a tool to Claude Code/Cursor/any MCP client — interoperability, fully local | S |
 
