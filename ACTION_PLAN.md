@@ -7,14 +7,14 @@ _Generated 2026-06-29 from a 9-stream parallel audit (5 code audits + 4 innovati
 > - **1.2 DSN reconciled** ✅ — conversation_service reads `DATABASE_URL` (`5432/inmyhead`, user `inmyhead_user`); the bogus `5434/inmyhead_dev` default is gone.
 > - **1.3 document-processor deploy fixed** ✅ — both Dockerfiles now run `src.app:app` on **8002** (was legacy `src.main` on 8001); added missing `httpx`/`chardet`.
 > - **1.4 No-OpenAI enforced + missing deps** ✅ — purged `openai` from ai-engine (code+tests+2 requirements) and document-processor requirements; added `asyncpg`. **158/158 ai-engine unit tests green.**
-> - **1.5 port ownership** ◑ — search-service default→8003 fixed; docker-compose swaps + gateway URLs still TODO.
+> - **1.5 port ownership** ✅ — docker-compose swaps fixed in both dev + prod composes (ai-engine :8001, document-processor :8002); cut-service URLs removed with the scaffolds; both validate clean via `docker compose config`.
 >
 > **Phase 2 (Correctness) — P0 DONE:**
 > - **2.1 Conversations are REAL now** ✅ — mounted the Postgres router (`src/routes/conversations.py`), unmounted the in-memory fake. **Verified E2E via HTTP:** create → send message → real grounded Ollama answer (596 tok, 5 citations) **persisted to Postgres** → GET returns 2 messages from DB → list shows message_count=2.
 > - **2.2 `_retrieve_without_cache` stub** ✅ (resolved by 2.1) — the live conversations path no longer touches `cached_rag_service`; it uses `rag_service.retrieve` directly.
 > - **2.4 honest `/ready`** ◑ — ai-engine now probes Qdrant + Postgres for real; other services still TODO.
 >
-> **Phase 2.3 (scaffolds) — DECIDED: CUT.** api-gateway / search-service / resource-manager removed from the v0.1.0 story (frontend already talks to ai-engine directly). Frontend nav trimmed to the 4 working pages; CLAUDE.md architecture updated. _TODO: de-list them from the compose files during Phase 4.3 consolidation._
+> **Phase 2.3 (scaffolds) — DECIDED: CUT.** api-gateway / search-service / resource-manager removed from the v0.1.0 story (frontend already talks to ai-engine directly). Frontend nav trimmed to the 4 working pages; CLAUDE.md architecture updated. **De-listed from both dev + prod composes (2026-07-01)** — Phase 4.3 consolidation done; only ai-engine + document-processor + infra remain.
 >
 > **Phase 3 (Frontend) — Dashboard DONE.** Added ai-engine `GET /documents/stats`; Dashboard now shows live counts (verified in-browser: 5 docs / 20 chunks / 1 conversation + recent-docs list). Collections page cut (was a static stub); nav = Dashboard/Documents/Search/Chat. Frontend builds clean.
 >
@@ -29,7 +29,9 @@ _Generated 2026-06-29 from a 9-stream parallel audit (5 code audits + 4 innovati
 > - GitHub repo renamed **`sgbilod/4` → `sgbilod/in-my-head`**; README badge `[USERNAME]` placeholders fixed.
 > - **Tagged and pushed `v0.1.0`.** 🎉
 >
-> **Remaining (low priority, optional):** prune the ~90 stale dependabot branches; compose-file consolidation; delete the safety mirror once the push is confirmed good.
+> **v0.2.0 shipped (2026-07-01):** semantic answer cache, streaming RAG, related-documents, retrieval eval harness, MCP server, embeddings upgrade (gte-base 768-dim, corpus migrated). Merged to `main`, tagged **v0.2.0**, pushed. All 7 feature branches + ~90 dependabot branches deleted (local + remote) — repo is `main`-only. Compose consolidation done (Phase 4.3).
+>
+> **Remaining (owner's call, not auto-done):** delete the safety mirror (`../in-my-head-PREPURGE-backup.git`) once the purge/push is confirmed good; optional Phase 5+ roadmap (contextual retrieval, "dreaming" nightly consolidation, Knowledge Radio).
 
 
 > **Bottom line:** There is a genuinely good, working core here — and the audit shows the project is **less complete than the sprint checkmarks claim**. This plan separates what truly works from what is scaffolded, then gives a dependency-ordered path to a real, shippable, secure v0.1.0, followed by a tiered innovation roadmap that turns the app into a category-defining "thinking second brain."
