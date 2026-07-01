@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # Database Services
   postgres:
@@ -78,84 +76,14 @@ services:
     networks:
       - inmyhead-network
 
-  # API Gateway (Node.js)
-  api-gateway:
-    build:
-      context: ../../services/api-gateway
-      dockerfile: Dockerfile.dev
-    container_name: inmyhead-api-gateway
-    ports:
-      - "8000:8000"
-    volumes:
-      - ../../services/api-gateway:/app
-      - /app/node_modules
-    environment:
-      - NODE_ENV=development
-      - PORT=8000
-      - POSTGRES_URL=postgresql://inmyhead:inmyhead_dev_pass_change_in_prod@postgres:5432/inmyhead_dev
-      - REDIS_URL=redis://redis:6379
-      - DOC_PROCESSOR_URL=http://document-processor:8001
-      - AI_ENGINE_URL=http://ai-engine:8002
-      - SEARCH_SERVICE_URL=http://search-service:8003
-      - RESOURCE_MANAGER_URL=http://resource-manager:8004
-      - LOG_LEVEL=debug
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: npm run dev
-    networks:
-      - inmyhead-network
-
-  # Document Processor (Python)
-  document-processor:
-    build:
-      context: ../../services/document-processor
-      dockerfile: Dockerfile.dev
-    container_name: inmyhead-document-processor
-    ports:
-      - "8001:8001"
-    volumes:
-      - ../../services/document-processor:/app
-      - document_cache:/app/cache
-    environment:
-      - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
-      - DATABASE_URL=postgresql://inmyhead:inmyhead_dev_pass_change_in_prod@postgres:5432/inmyhead_dev
-      - POSTGRES_URL=postgresql://inmyhead:inmyhead_dev_pass_change_in_prod@postgres:5432/inmyhead_dev
-      - REDIS_URL=redis://redis:6379
-      - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=inmyhead
-      - MINIO_SECRET_KEY=inmyhead_dev_pass_change_in_prod
-      - MINIO_SECURE=false
-      # AI Provider Configuration
-      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-local}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
-      - LLM_PROVIDER=${LLM_PROVIDER:-claude}
-      # AI Provider API Keys
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    command: uvicorn src.main:app --reload --host 0.0.0.0 --port 8001
-    networks:
-      - inmyhead-network
-
-  # AI Engine (Python)
+  # AI Engine (Python) — core: RAG, ingestion, conversations, MCP
   ai-engine:
     build:
       context: ../../services/ai-engine
       dockerfile: Dockerfile.dev
     container_name: inmyhead-ai-engine
     ports:
-      - "8002:8002"
+      - "8001:8001"
     volumes:
       - ../../services/ai-engine:/app
       - ai_models:/models
@@ -165,68 +93,41 @@ services:
       - QDRANT_URL=http://qdrant:6333
       - MODEL_CACHE_DIR=/models
       - REDIS_URL=redis://redis:6379
-      # AI Provider API Keys (optional, for external APIs)
+      - DATABASE_URL=postgresql://inmyhead:inmyhead_dev_pass_change_in_prod@postgres:5432/inmyhead_dev
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-thenlper/gte-base}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-768}
+      # Local-first; external LLM keys optional (no OpenAI per values rule)
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
     depends_on:
       qdrant:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: uvicorn src.main:app --reload --host 0.0.0.0 --port 8002
+      postgres:
+        condition: service_healthy
+    command: uvicorn src.main:app --reload --host 0.0.0.0 --port 8001
     networks:
       - inmyhead-network
 
-  # Search Service (Python)
-  search-service:
+  # Document Processor (Python) — parses PDF/DOCX/… then forwards to ai-engine
+  document-processor:
     build:
-      context: ../../services/search-service
+      context: ../../services/document-processor
       dockerfile: Dockerfile.dev
-    container_name: inmyhead-search-service
+    container_name: inmyhead-document-processor
     ports:
-      - "8003:8003"
+      - "8002:8002"
     volumes:
-      - ../../services/search-service:/app
-      - search_cache:/app/cache
+      - ../../services/document-processor:/app
+      - document_cache:/app/cache
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
-      - QDRANT_URL=http://qdrant:6333
-      - POSTGRES_URL=postgresql://inmyhead:inmyhead_dev_pass_change_in_prod@postgres:5432/inmyhead_dev
-      - REDIS_URL=redis://redis:6379
+      - AI_ENGINE_URL=http://ai-engine:8001
     depends_on:
-      qdrant:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: uvicorn src.main:app --reload --host 0.0.0.0 --port 8003
-    networks:
-      - inmyhead-network
-
-  # Resource Manager (Python)
-  resource-manager:
-    build:
-      context: ../../services/resource-manager
-      dockerfile: Dockerfile.dev
-    container_name: inmyhead-resource-manager
-    ports:
-      - "8004:8004"
-    volumes:
-      - ../../services/resource-manager:/app
-    environment:
-      - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
-      - POSTGRES_URL=postgresql://inmyhead:inmyhead_dev_pass_change_in_prod@postgres:5432/inmyhead_dev
-      - REDIS_URL=redis://redis:6379
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: uvicorn src.main:app --reload --host 0.0.0.0 --port 8004
+      - ai-engine
+    command: uvicorn src.app:app --reload --host 0.0.0.0 --port 8002
     networks:
       - inmyhead-network
 
@@ -273,8 +174,6 @@ volumes:
     name: inmyhead_ai_models
   document_cache:
     name: inmyhead_document_cache
-  search_cache:
-    name: inmyhead_search_cache
   prometheus_data:
     name: inmyhead_prometheus_data
   grafana_data:

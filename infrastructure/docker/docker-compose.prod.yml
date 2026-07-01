@@ -1,7 +1,11 @@
 # Production Docker Compose Configuration
-# Optimized for production deployment with resource limits and health checks
-
-version: "3.8"
+# Optimized for production deployment with resource limits and health checks.
+#
+# Architecture note (v0.1.0+): the ecosystem is TWO application services —
+#   ai-engine (:8001, core RAG/LLM/ingestion) and document-processor (:8002,
+#   parse-and-forward). The old api-gateway / search-service / resource-manager
+#   scaffolds were cut (non-functional). No OpenAI (values rule) — local-first
+#   embeddings (gte-base, 768-dim) + Ollama, optional Anthropic/Google fallback.
 
 services:
   # ============================================
@@ -91,6 +95,7 @@ services:
   # Application Services
   # ============================================
 
+  # Core: RAG, LLM (Ollama), embeddings, ingestion, conversations, MCP
   ai-engine:
     build:
       context: ./services/ai-engine
@@ -101,53 +106,15 @@ services:
       DATABASE_URL: postgresql://inmyhead:${POSTGRES_PASSWORD}@postgres:5432/inmyhead_prod
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       QDRANT_URL: http://qdrant:6333
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      ENVIRONMENT: production
-      LOG_LEVEL: info
-    ports:
-      - "8002:8002"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      qdrant:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 40s
-    deploy:
-      resources:
-        limits:
-          cpus: "2"
-          memory: 2G
-        reservations:
-          cpus: "0.5"
-          memory: 512M
-    networks:
-      - inmyhead-network
-
-  document-processor:
-    build:
-      context: ./services/document-processor
-      dockerfile: Dockerfile
-    container_name: inmyhead-doc-processor-prod
-    restart: unless-stopped
-    environment:
-      DATABASE_URL: postgresql://inmyhead:${POSTGRES_PASSWORD}@postgres:5432/inmyhead_prod
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-      QDRANT_URL: http://qdrant:6333
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-thenlper/gte-base}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-768}
+      # Local-first; external LLM keys optional (no OpenAI per values rule)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       ENVIRONMENT: production
       LOG_LEVEL: info
     ports:
       - "8001:8001"
-    volumes:
-      - document_storage:/app/storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -165,37 +132,33 @@ services:
       resources:
         limits:
           cpus: "2"
-          memory: 3G
+          memory: 2G
         reservations:
           cpus: "0.5"
-          memory: 1G
+          memory: 512M
     networks:
       - inmyhead-network
 
-  search-service:
+  # Parses PDF/DOCX/PPTX/… then forwards extracted text to ai-engine /documents
+  document-processor:
     build:
-      context: ./services/search-service
+      context: ./services/document-processor
       dockerfile: Dockerfile
-    container_name: inmyhead-search-service-prod
+    container_name: inmyhead-doc-processor-prod
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://inmyhead:${POSTGRES_PASSWORD}@postgres:5432/inmyhead_prod
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-      QDRANT_URL: http://qdrant:6333
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      AI_ENGINE_URL: http://ai-engine:8001
       ENVIRONMENT: production
       LOG_LEVEL: info
     ports:
-      - "8003:8003"
+      - "8002:8002"
+    volumes:
+      - document_storage:/app/storage
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      qdrant:
+      ai-engine:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -204,10 +167,10 @@ services:
       resources:
         limits:
           cpus: "2"
-          memory: 2G
+          memory: 3G
         reservations:
           cpus: "0.5"
-          memory: 512M
+          memory: 1G
     networks:
       - inmyhead-network
 
@@ -220,7 +183,7 @@ services:
       context: ./frontend/web-interface
       dockerfile: Dockerfile
       args:
-        - VITE_API_URL=${API_URL:-http://localhost:8000}
+        - VITE_API_URL=${API_URL:-http://localhost:8001}
     container_name: inmyhead-web-interface-prod
     restart: unless-stopped
     ports:
@@ -228,7 +191,6 @@ services:
     depends_on:
       - ai-engine
       - document-processor
-      - search-service
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80"]
       interval: 30s
