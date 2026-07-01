@@ -46,10 +46,16 @@ class SemanticCache:
         self,
         threshold: float = 0.97,
         ttl_seconds: int = 86_400,
-        embedding_dim: int = 384,
+        embedding_dim: Optional[int] = None,
     ):
         self.threshold = float(os.getenv("RAG_CACHE_THRESHOLD", threshold))
         self.ttl = int(os.getenv("RAG_CACHE_TTL", ttl_seconds))
+        if embedding_dim is None:
+            try:
+                from src.config import settings
+                embedding_dim = settings.embedding_dimension
+            except Exception:
+                embedding_dim = 384
         self.dim = embedding_dim
         self._ready = False
 

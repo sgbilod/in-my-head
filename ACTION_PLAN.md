@@ -126,7 +126,7 @@ _Tiered by leverage. All chosen to run **fully local** (privacy is the moat). Ef
 ### 🚀 TIER 2 — Flagship Bets (define the product identity)
 | # | Innovation | Why | Effort |
 |---|---|---|---|
-| 9 | **Upgrade embeddings** → EmbeddingGemma-300M or nomic-embed-text-v1.5 (Matryoshka) | all-MiniLM is the weakest link; big quality jump, keep storage flat via Matryoshka truncation | M |
+| 9 | ✅ **Upgrade embeddings** → **gte-base (768-dim)** — SHIPPED 2026-07-01 (branch `feat/embeddings-upgrade`). Replaced all-MiniLM-L6-v2 (384-dim, MTEB ~56) with `thenlper/gte-base` (768-dim, MTEB ~62, no query/doc prefix). Config-driven (was ignoring config — fixed `get_rag_service` + semantic_cache to read `settings.embedding_dimension`); fixed a stale `.env` that pointed embeddings at OpenAI `ada-002`. Migration `scripts/migrate_embeddings.py` re-embeds the corpus from stored chunk text (no re-upload). **Verified: eval Hit@1=100%/MRR=1.000 (no regression); retrieval+cache+related all work at 768.** _Note: demo corpus is saturated so the metric can't show the gain — the eval harness will prove it on a real/harder corpus. gte-base has higher baseline cosine, so related-doc "% match" reads higher._ | M |
 | 10 | **"Knowledge Radio" — local Audio Overviews** (Ollama script + Kokoro/Piper TTS) | NotebookLM's #1 viral feature, but **fully private** — a marketing magnet nobody offers on-device | M |
 | 11 | **Auto-knowledge-graph** (LightRAG / nano-graphrag on Ollama) | The AI-generated Obsidian graph + multi-hop "how does X relate to Y" retrieval | M |
 | 12 | **Smart Inbox + auto-tagging/auto-collections** (Ollama classify on ingest) | Most-requested AI-PKM behavior; free/unmetered locally | S–M |
