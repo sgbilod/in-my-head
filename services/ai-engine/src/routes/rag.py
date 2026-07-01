@@ -409,7 +409,18 @@ async def rag_query_stream(
     async def generate():
         try:
             logger.info(f"RAG query (streaming): {request.query[:100]}")
-            
+
+            # Semantic cache: a near-identical prior query returns instantly
+            # (emit the whole cached answer as one chunk, then citations + done).
+            from src.services.semantic_cache import get_semantic_cache
+            cache = get_semantic_cache()
+            hit = await cache.lookup(request.query, request.model)
+            if hit is not None:
+                yield f"data: {json.dumps({'chunk': hit['answer'], 'cached': True})}\n\n"
+                yield f"data: {json.dumps({'citations': hit['citations']})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'cached': True})}\n\n"
+                return
+
             # Retrieve context
             context = await rag.retrieve(
                 query=request.query,
@@ -417,13 +428,13 @@ async def rag_query_stream(
                 top_k=request.top_k,
                 use_reranking=request.use_reranking
             )
-            
+
             # Initialize LLM
             llm = get_llm_service(
                 anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
                 google_api_key=os.getenv("GOOGLE_API_KEY")
             )
-            
+
             # Stream answer
             full_answer = ""
             try:
@@ -436,7 +447,7 @@ async def rag_query_stream(
                 ):
                     full_answer += chunk
                     yield f"data: {json.dumps({'chunk': chunk})}\n\n"
-                
+
                 # Send citations
                 used_citations = rag.extract_citations(context, full_answer)
                 citations_data = [
@@ -451,7 +462,17 @@ async def rag_query_stream(
                     for cit in used_citations
                 ]
                 yield f"data: {json.dumps({'citations': citations_data})}\n\n"
-                
+
+                # Store the completed answer so the next near-identical query
+                # is served instantly from the semantic cache.
+                await cache.store(
+                    query=request.query,
+                    model=request.model,
+                    answer=full_answer,
+                    citations=citations_data,
+                    tokens_used=max(1, len(full_answer) // 4),
+                )
+
             except ValueError as ve:
                 # No API keys - send context only
                 logger.warning(f"LLM streaming failed: {ve}")
@@ -460,10 +481,10 @@ async def rag_query_stream(
                     f"Retrieved {len(context.chunks)} relevant chunks."
                 )
                 yield f"data: {json.dumps({'chunk': fallback_msg})}\n\n"
-            
+
             # Send done signal
             yield f"data: {json.dumps({'done': True})}\n\n"
-            
+
         except Exception as e:
             logger.error(f"Streaming error: {e}", exc_info=True)
             yield f"data: {json.dumps({'error': str(e)})}\n\n"

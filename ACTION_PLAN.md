@@ -115,7 +115,7 @@ _Tiered by leverage. All chosen to run **fully local** (privacy is the moat). Ef
 | # | Innovation | Why | Effort |
 |---|---|---|---|
 | 1 | ✅ **Semantic answer cache over Qdrant** — SHIPPED 2026-07-01 (branch `feat/semantic-answer-cache`). `src/services/semantic_cache.py` + wired into `/rag/query`; corpus-size invalidation, TTL, per-model, fail-open. **Verified server-side: 74s → ~50ms warm hit (~1500×); paraphrase hits at 0.98 similarity.** 8 unit tests; full suite 166 green. | S–M |
-| 2 | **Streaming-first UX** (SSE token stream + show citations during TTFT) | Makes the app *feel* instant regardless of total latency | S |
+| 2 | ✅ **Streaming-first UX** — SHIPPED 2026-07-01 (branch `feat/streaming-responses`, stacked on the cache). `/rag/query/stream` is now cache-aware (hit → instant single chunk; miss → token stream, then stored to cache); frontend `ragQueryStream()` (fetch+ReadableStream SSE) wired into Chat with a live typing cursor. Verified in-browser (cached hit renders "via llama3 · cached") + SSE client (80 chunks on cold query). **Honest note:** cold first-token ~60s = Ollama *prefill* on CPU (not generation); the cache—not streaming—is what makes repeats instant; reducing prefill (smaller model/fewer chunks) is the cold-query lever. | S |
 | 3 | **Right-size the generator** → Qwen3 8–14B Q5/Q6 default, 70B on-demand | **4–8x faster**, ~same grounded-answer quality; Qwen also enables KV-cache reuse (Gemma doesn't) | S |
 | 4 | **Contextual Retrieval** (Anthropic method, run with local Ollama) | **−35% to −67% retrieval failures**; slots into your existing chunk+BM25+rerank pipeline | S–M |
 | 5 | **Parent-document retrieval** (embed child chunks, return parent section) | Near-free precision win via a `parent_id` Qdrant payload | S |

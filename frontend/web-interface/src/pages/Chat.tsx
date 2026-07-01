@@ -1,13 +1,14 @@
 /**
  * Chat — multi-turn RAG conversation against ingested documents.
  *
- * Each user turn queries the ai-engine RAG endpoint (/api/rag/query) and the
- * answer is rendered with its source citations. History is kept client-side.
+ * Answers stream token-by-token from /api/rag/query/stream (SSE); a semantic
+ * cache hit arrives instantly as one chunk. Citations render after the answer.
+ * History is kept client-side.
  */
 
 import { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Loader2, FileText } from 'lucide-react';
-import { api, type Citation } from '../lib/api-client';
+import { ragQueryStream, type Citation } from '../lib/api-client';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -15,6 +16,7 @@ interface ChatMessage {
   citations?: Citation[];
   model?: string;
   error?: boolean;
+  streaming?: boolean;
 }
 
 export default function Chat() {
@@ -31,33 +33,47 @@ export default function Chat() {
     const query = input.trim();
     if (!query || loading) return;
 
-    setMessages((m) => [...m, { role: 'user', content: query }]);
     setInput('');
     setLoading(true);
+    // Add the user turn plus an empty assistant bubble to stream into.
+    setMessages((m) => [
+      ...m,
+      { role: 'user', content: query },
+      { role: 'assistant', content: '', citations: [], streaming: true },
+    ]);
 
-    try {
-      const res = await api.ragQuery({ query });
-      setMessages((m) => [
-        ...m,
-        {
-          role: 'assistant',
-          content: res.answer,
-          citations: res.citations,
-          model: res.model,
+    // Patch the most recent assistant message immutably.
+    const patchLast = (patch: Partial<ChatMessage>) =>
+      setMessages((m) => {
+        const copy = [...m];
+        for (let i = copy.length - 1; i >= 0; i--) {
+          if (copy[i].role === 'assistant') {
+            copy[i] = { ...copy[i], ...patch };
+            break;
+          }
+        }
+        return copy;
+      });
+
+    let acc = '';
+    await ragQueryStream(
+      { query },
+      {
+        onChunk: (t) => {
+          acc += t;
+          patchLast({ content: acc });
         },
-      ]);
-    } catch (err) {
-      const detail =
-        (err as { data?: { detail?: string }; message?: string })?.data?.detail ||
-        (err as { message?: string })?.message ||
-        'Request failed';
-      setMessages((m) => [
-        ...m,
-        { role: 'assistant', content: `Error: ${detail}`, error: true },
-      ]);
-    } finally {
-      setLoading(false);
-    }
+        onCitations: (c) => patchLast({ citations: c }),
+        onDone: (cached) => {
+          patchLast({ streaming: false, model: cached ? 'llama3 · cached' : 'llama3' });
+          setLoading(false);
+        },
+        onError: (msg) => {
+          patchLast({ content: `Error: ${msg}`, error: true, streaming: false });
+          setLoading(false);
+        },
+      },
+    );
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -104,7 +120,16 @@ export default function Chat() {
                     : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow'
               }`}
             >
-              <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+              {msg.role === 'assistant' && msg.streaming && !msg.content ? (
+                <Loader2 className="w-5 h-5 animate-spin text-primary-500" />
+              ) : (
+                <p className="whitespace-pre-wrap leading-relaxed">
+                  {msg.content}
+                  {msg.streaming && (
+                    <span className="inline-block w-1.5 h-4 ml-0.5 align-middle bg-primary-500 animate-pulse" />
+                  )}
+                </p>
+              )}
 
               {msg.citations && msg.citations.length > 0 && (
                 <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
@@ -144,16 +169,6 @@ export default function Chat() {
           </div>
         ))}
 
-        {loading && (
-          <div className="flex gap-3 justify-start">
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary-500 flex items-center justify-center">
-              <Bot className="w-5 h-5 text-white" />
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-2xl px-4 py-3 shadow">
-              <Loader2 className="w-5 h-5 animate-spin text-primary-500" />
-            </div>
-          </div>
-        )}
         <div ref={endRef} />
       </div>
 

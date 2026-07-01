@@ -130,3 +130,72 @@ export const api = {
     await apiClient.delete(`/documents/${documentId}`);
   },
 };
+
+// ==================== Streaming RAG (SSE over POST) ====================
+
+export interface RagStreamCallbacks {
+  onChunk: (text: string) => void;
+  onCitations: (citations: Citation[]) => void;
+  onDone: (cached: boolean) => void;
+  onError: (message: string) => void;
+}
+
+/**
+ * Stream a RAG answer token-by-token from /api/rag/query/stream (Server-Sent
+ * Events over a POST body). A cache hit arrives as a single chunk + done.
+ * Uses fetch + ReadableStream since EventSource cannot POST.
+ */
+export async function ragQueryStream(
+  params: { query: string; model?: string; top_k?: number; max_tokens?: number },
+  cb: RagStreamCallbacks,
+  signal?: AbortSignal,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch('/api/rag/query/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: params.query,
+        model: params.model ?? 'llama3',
+        top_k: params.top_k ?? 5,
+        max_tokens: params.max_tokens ?? 400,
+        use_reranking: true,
+      }),
+      signal,
+    });
+  } catch (e) {
+    cb.onError((e as Error)?.message ?? 'Network error');
+    return;
+  }
+  if (!res.ok || !res.body) {
+    cb.onError(`Request failed (HTTP ${res.status})`);
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split('\n\n');
+    buffer = events.pop() ?? '';
+    for (const evt of events) {
+      const line = evt.trim();
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (!payload) continue;
+      try {
+        const data = JSON.parse(payload);
+        if (typeof data.chunk === 'string') cb.onChunk(data.chunk);
+        if (Array.isArray(data.citations)) cb.onCitations(data.citations);
+        if (typeof data.error === 'string') cb.onError(data.error);
+        if (data.done) cb.onDone(Boolean(data.cached));
+      } catch {
+        /* ignore malformed SSE line */
+      }
+    }
+  }
+}
