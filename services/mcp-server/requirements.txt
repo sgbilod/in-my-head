@@ -1,0 +1,3 @@
+# In My Head MCP server — a thin stdio bridge to the ai-engine.
+mcp[cli]>=1.2.0
+httpx>=0.25.2
