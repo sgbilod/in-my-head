@@ -1,6 +1,6 @@
 # 🧠 In My Head
 
-[![CI/CD](https://github.com/[USERNAME]/in-my-head/workflows/CI/badge.svg)]()
+[![CI/CD](https://github.com/sgbilod/in-my-head/workflows/CI/badge.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)]()
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue)]()
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)]()
@@ -109,7 +109,7 @@ Store everything **In My Head** - your personal AI assistant that:
 
 ```bash
 # Clone the repository
-git clone https://github.com/[USERNAME]/in-my-head.git
+git clone https://github.com/sgbilod/in-my-head.git
 cd in-my-head
 
 # Run automated setup
@@ -124,7 +124,7 @@ docker-compose -f infrastructure/docker/docker-compose.dev.yml up
 
 ```bash
 # Clone repository
-git clone https://github.com/[USERNAME]/in-my-head.git
+git clone https://github.com/sgbilod/in-my-head.git
 cd in-my-head
 
 # Install Node.js dependencies
@@ -316,8 +316,8 @@ This project is licensed under the **MIT License** - see [LICENSE](LICENSE) file
 
 - 📧 **Email**: support@inmyhead.ai
 - 💬 **Discord**: [Join our community]
-- 🐛 **Issues**: [GitHub Issues](https://github.com/[USERNAME]/in-my-head/issues)
-- 💡 **Discussions**: [GitHub Discussions](https://github.com/[USERNAME]/in-my-head/discussions)
+- 🐛 **Issues**: [GitHub Issues](https://github.com/sgbilod/in-my-head/issues)
+- 💡 **Discussions**: [GitHub Discussions](https://github.com/sgbilod/in-my-head/discussions)
 - 🐦 **Twitter**: [@InMyHeadAI](https://twitter.com/InMyHeadAI)
 
 ---

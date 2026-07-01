@@ -22,7 +22,14 @@ _Generated 2026-06-29 from a 9-stream parallel audit (5 code audits + 4 innovati
 > - **Single startup script** ✅ — `start.ps1` at repo root brings up infra → Ollama → ai-engine (:8001) → document-processor (:8002) → frontend (:3001) in dependency order, with correct ports + DATABASE_URL. Supersedes the fragmented start-*.ps1.
 > - **InMyHead.py launcher fixed** ✅ — uses the root `docker-compose.infrastructure.yml`; health-checks ai-engine (:8001) with the correct label; "Open Web Interface" now opens the real app at **:3001** (was Swagger). (The `3000` the audit flagged was a tray-notification timeout, not a port — left as-is.)
 >
-> **Still open (git-destructive or user-gated):** repo file cleanup (archive 57 root docs, remove debug scripts + committed `venv/`, delete empty Electron scaffold), GitHub rename `sgbilod/4`→`in-my-head`, compose consolidation, tag v0.1.0 — and **Phase 0 security (rotate leaked keys + git-history purge — needs you).**
+> **Phase 0 security + Phase 4 ship — DONE (2026-07-01):**
+> - Keys rotated (by owner); loose key file deleted; committed dev `SECRET_KEY`/`JWT_SECRET` regenerated into untracked `.env`.
+> - Leaked artifacts **purged from all git history** (`git-filter-repo`, 121 commits rewritten) after a safety mirror (`../in-my-head-PREPURGE-backup.git`); force-pushed.
+> - Repo cleanup committed (52 root reports → `docs/archive/`, dead patch scripts + empty Electron scaffold + committed `venv/` removed).
+> - GitHub repo renamed **`sgbilod/4` → `sgbilod/in-my-head`**; README badge `[USERNAME]` placeholders fixed.
+> - **Tagged and pushed `v0.1.0`.** 🎉
+>
+> **Remaining (low priority, optional):** prune the ~90 stale dependabot branches; compose-file consolidation; delete the safety mirror once the push is confirmed good.
 
 
 > **Bottom line:** There is a genuinely good, working core here — and the audit shows the project is **less complete than the sprint checkmarks claim**. This plan separates what truly works from what is scaffolded, then gives a dependency-ordered path to a real, shippable, secure v0.1.0, followed by a tiered innovation roadmap that turns the app into a category-defining "thinking second brain."
