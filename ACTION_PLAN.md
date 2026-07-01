@@ -120,7 +120,7 @@ _Tiered by leverage. All chosen to run **fully local** (privacy is the moat). Ef
 | 4 | **Contextual Retrieval** (Anthropic method, run with local Ollama) | **−35% to −67% retrieval failures**; slots into your existing chunk+BM25+rerank pipeline | S–M |
 | 5 | **Parent-document retrieval** (embed child chunks, return parent section) | Near-free precision win via a `parent_id` Qdrant payload | S |
 | 6 | ✅ **"Related Documents"** — SHIPPED 2026-07-01 (branch `feat/related-documents`). `GET /documents/{id}/related` (centroid of a doc's chunk vectors → nearest chunks across corpus → aggregate by doc, exclude self; pure vector similarity, no LLM); frontend sparkle toggle on each Documents row shows related docs + % match. Verified in-browser (volcanoes.pdf → Black Holes 19%, Photosynthesis 16%). Fast — sidesteps the CPU-inference latency wall. _Future: add the 1-Ollama-call "why related" rationale._ | S |
-| 7 | **Retrieval metrics + RAGAS gold set** (Hit@k/MRR, local Ollama judge) | Measurement *first* so every change below is provable; CI regression gate | S–M |
+| 7 | ✅ **Retrieval metrics harness** — SHIPPED 2026-07-01 (branch `feat/retrieval-eval`). `eval/gold_set.json` + `eval/run_eval.py` compute Hit@k (k=1/3/5) + MRR against `/rag/retrieve`; non-zero exit if Hit@5<50% (CI gate). **Baseline established: Hit@1=100%, MRR=1.000** (12 queries, current embeddings+rerank). Now every future retrieval change (embeddings upgrade, contextual retrieval) is provable. _Future: add RAGAS faithfulness with a local Ollama judge._ | S–M |
 | 8 | **Official Qdrant MCP server** (local path) | Expose your brain as a tool to Claude Code/Cursor/any MCP client — interoperability, fully local | S |
 
 ### 🚀 TIER 2 — Flagship Bets (define the product identity)

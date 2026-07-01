@@ -1,0 +1,17 @@
+{
+  "description": "Retrieval gold set for the demo corpus. Each query names the document its answer should come from. Used to measure Hit@k and MRR of /rag/retrieve. Regenerate for your own corpus.",
+  "cases": [
+    { "query": "How do plants make oxygen?", "expected_title": "Photosynthesis Basics" },
+    { "query": "What is chlorophyll used for?", "expected_title": "Photosynthesis Basics" },
+    { "query": "How do plants convert carbon dioxide into food?", "expected_title": "Photosynthesis Basics" },
+    { "query": "What is a qubit?", "expected_title": "Quantum Computing Basics" },
+    { "query": "How does quantum entanglement work?", "expected_title": "Quantum Computing Basics" },
+    { "query": "What does Shor's algorithm do?", "expected_title": "Quantum Computing Basics" },
+    { "query": "What is the event horizon of a black hole?", "expected_title": "Black Holes" },
+    { "query": "What lies at the center of a black hole?", "expected_title": "Black Holes" },
+    { "query": "Where are most volcanoes located on Earth?", "expected_title": "volcanoes.pdf" },
+    { "query": "What is the Ring of Fire?", "expected_title": "volcanoes.pdf" },
+    { "query": "How did Roman aqueducts move water across valleys?", "expected_title": "aqueducts.docx" },
+    { "query": "What did aqueducts supply to Roman cities?", "expected_title": "aqueducts.docx" }
+  ]
+}
