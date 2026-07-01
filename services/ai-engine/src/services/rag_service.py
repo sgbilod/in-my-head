@@ -594,5 +594,10 @@ def get_rag_service() -> RAGService:
     """
     global _rag_service
     if _rag_service is None:
-        _rag_service = RAGService()
+        # Use the configured embedding model (was previously hardcoded).
+        try:
+            from src.config import settings
+            _rag_service = RAGService(embedding_model_name=settings.embedding_model)
+        except Exception:
+            _rag_service = RAGService()
     return _rag_service

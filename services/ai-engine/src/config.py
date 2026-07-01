@@ -29,8 +29,11 @@ class Settings(BaseSettings):
     qdrant_collection_queries: str = "query_embeddings"
 
     # AI Model Configuration
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    embedding_dimension: int = 384
+    # gte-base (768-dim, MTEB ~62 vs all-MiniLM ~56); no query/doc prefix needed.
+    # Override via EMBEDDING_MODEL / EMBEDDING_DIMENSION env. Changing these
+    # requires re-embedding the corpus (scripts/migrate_embeddings.py).
+    embedding_model: str = "thenlper/gte-base"
+    embedding_dimension: int = 768
     max_chunk_size: int = 500
     chunk_overlap: int = 50
 
