@@ -7,8 +7,14 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Upload, FileText, Trash2, Loader2 } from 'lucide-react';
-import { api, type DocumentSummary } from '../lib/api-client';
+import { Upload, FileText, Trash2, Loader2, Sparkles } from 'lucide-react';
+import { api, type DocumentSummary, type RelatedDocument } from '../lib/api-client';
+
+interface RelatedState {
+  open: boolean;
+  loading: boolean;
+  items: RelatedDocument[];
+}
 
 const ACCEPTED = '.txt,.md,.markdown,.csv,.json,.text';
 
@@ -18,7 +24,27 @@ export default function Documents() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [related, setRelated] = useState<Record<string, RelatedState>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const toggleRelated = async (id: string) => {
+    const cur = related[id];
+    if (cur?.open) {
+      setRelated((r) => ({ ...r, [id]: { ...cur, open: false } }));
+      return;
+    }
+    if (cur?.items) {
+      setRelated((r) => ({ ...r, [id]: { ...cur, open: true } }));
+      return;
+    }
+    setRelated((r) => ({ ...r, [id]: { open: true, loading: true, items: [] } }));
+    try {
+      const items = await api.getRelated(id, 4);
+      setRelated((r) => ({ ...r, [id]: { open: true, loading: false, items } }));
+    } catch {
+      setRelated((r) => ({ ...r, [id]: { open: true, loading: false, items: [] } }));
+    }
+  };
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -148,28 +174,79 @@ export default function Documents() {
             </p>
           ) : (
             <ul className="divide-y divide-gray-100 dark:divide-gray-700">
-              {docs.map((doc) => (
-                <li key={doc.document_id} className="flex items-center justify-between py-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <FileText className="w-5 h-5 text-primary-500 flex-shrink-0" />
-                    <div className="min-w-0">
-                      <p className="font-medium text-gray-900 dark:text-white truncate">
-                        {doc.title}
-                      </p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {doc.chunk_count} chunk{doc.chunk_count === 1 ? '' : 's'}
-                      </p>
+              {docs.map((doc) => {
+                const rel = related[doc.document_id];
+                return (
+                <li key={doc.document_id} className="py-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <FileText className="w-5 h-5 text-primary-500 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 dark:text-white truncate">
+                          {doc.title}
+                        </p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {doc.chunk_count} chunk{doc.chunk_count === 1 ? '' : 's'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => toggleRelated(doc.document_id)}
+                        className={`p-2 rounded-lg transition-colors ${
+                          rel?.open
+                            ? 'text-primary-600 bg-primary-50 dark:bg-primary-900/20'
+                            : 'text-gray-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20'
+                        }`}
+                        title="Show related documents"
+                        aria-label={`Related to ${doc.title}`}
+                      >
+                        <Sparkles className="w-5 h-5" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(doc.document_id)}
+                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                        aria-label={`Delete ${doc.title}`}
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDelete(doc.document_id)}
-                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                    aria-label={`Delete ${doc.title}`}
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
+
+                  {rel?.open && (
+                    <div className="mt-2 ml-8 pl-4 border-l-2 border-primary-200 dark:border-primary-800">
+                      {rel.loading ? (
+                        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-1">
+                          <Loader2 className="w-4 h-4 animate-spin" /> Finding related…
+                        </div>
+                      ) : rel.items.length === 0 ? (
+                        <p className="text-sm text-gray-500 dark:text-gray-400 py-1">
+                          No related documents found.
+                        </p>
+                      ) : (
+                        <ul className="space-y-1 py-1">
+                          <li className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+                            Related documents
+                          </li>
+                          {rel.items.map((r) => (
+                            <li
+                              key={r.document_id}
+                              className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-primary-400 flex-shrink-0" />
+                              <span className="truncate">{r.title}</span>
+                              <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
+                                {Math.max(0, r.score * 100).toFixed(0)}% match
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </div>

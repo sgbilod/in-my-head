@@ -238,6 +238,85 @@ async def list_documents() -> List[DocumentSummary]:
     return list(docs.values())
 
 
+class RelatedDocument(BaseModel):
+    """A document semantically related to another."""
+    document_id: str
+    title: str
+    score: float
+
+
+@router.get("/{document_id}/related", response_model=List[RelatedDocument])
+async def related_documents(document_id: str, limit: int = 5) -> List[RelatedDocument]:
+    """
+    Find documents semantically related to this one.
+
+    Averages the target document's chunk embeddings into a centroid, finds the
+    nearest chunks across the corpus, and aggregates by document (best chunk
+    score per document, excluding the target). Pure vector similarity — no LLM.
+    """
+    from qdrant_client import models as qmodels
+    import numpy as np
+
+    qdrant = get_qdrant_service()
+    await qdrant.initialize()
+    client = qdrant.client
+
+    # 1. Collect this document's chunk vectors
+    vectors: List[List[float]] = []
+    offset = None
+    try:
+        while True:
+            recs, offset = client.scroll(
+                collection_name=CHUNK_COLLECTION,
+                scroll_filter=qmodels.Filter(
+                    must=[qmodels.FieldCondition(
+                        key="document_id",
+                        match=qmodels.MatchValue(value=document_id),
+                    )]
+                ),
+                limit=256, offset=offset, with_payload=False, with_vectors=True,
+            )
+            for r in recs:
+                if r.vector is not None:
+                    vectors.append(r.vector)
+            if offset is None:
+                break
+    except Exception as e:
+        msg = str(e).lower()
+        if "doesn't exist" in msg or "not found" in msg or "404" in msg:
+            return []
+        raise HTTPException(status_code=500, detail=f"Failed to load document: {e}")
+
+    if not vectors:
+        raise HTTPException(status_code=404, detail="Document not found or has no chunks")
+
+    # 2. Centroid → nearest chunks across the corpus
+    centroid = np.mean(np.array(vectors, dtype=float), axis=0).tolist()
+    resp = client.query_points(
+        collection_name=CHUNK_COLLECTION,
+        query=centroid,
+        limit=60,
+        with_payload=True,
+    )
+
+    # 3. Aggregate by document (best score per doc, excluding self)
+    best: Dict[str, Any] = {}
+    for p in resp.points:
+        pl = p.payload or {}
+        did = pl.get("document_id")
+        if not did or did == document_id:
+            continue
+        title = pl.get("document_title", "Untitled")
+        if did not in best or p.score > best[did][1]:
+            best[did] = (title, float(p.score))
+
+    ranked = sorted(best.items(), key=lambda kv: kv[1][1], reverse=True)[:limit]
+    return [
+        RelatedDocument(document_id=did, title=t, score=round(s, 3))
+        for did, (t, s) in ranked
+    ]
+
+
 @router.delete("/{document_id}")
 async def delete_document(document_id: str) -> Dict[str, Any]:
     """Delete all chunks belonging to a document."""
