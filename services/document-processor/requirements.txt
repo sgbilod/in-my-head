@@ -40,7 +40,7 @@ qdrant-client==1.7.0
 
 # Background jobs (Celery)
 celery[redis]==5.3.4
-kombu==5.3.4
+kombu==5.6.2
 flower==2.0.1  # Celery monitoring dashboard
 
 # Retry logic
