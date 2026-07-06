@@ -33,7 +33,7 @@ tiktoken>=0.5.2
 
 # Embeddings - LOCAL FIRST (privacy)
 sentence-transformers>=2.2.2
-torch>=2.0.0
+torch>=2.12.1
 transformers>=4.30.0
 
 # AI Providers (for LLM inference)
