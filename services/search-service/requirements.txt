@@ -9,7 +9,7 @@ qdrant-client==1.7.0
 # Database
 psycopg2-binary==2.9.9
 redis==5.0.1
-sqlalchemy==2.0.23
+sqlalchemy==2.0.51
 
 # Search and indexing
 elasticsearch==8.11.1
