@@ -32,7 +32,7 @@ langdetect>=1.0.9
 tiktoken>=0.5.2
 
 # Embeddings - LOCAL FIRST (privacy)
-sentence-transformers>=2.2.2
+sentence-transformers>=5.6.0
 torch>=2.0.0
 transformers>=4.30.0
 

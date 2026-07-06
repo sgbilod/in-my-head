@@ -33,7 +33,7 @@ langdetect==1.0.9
 tiktoken==0.5.2
 
 # Embeddings (local-first; embedding is delegated to ai-engine, no OpenAI)
-sentence-transformers==2.2.2
+sentence-transformers==5.6.0
 
 # Vector storage
 qdrant-client==1.7.0
